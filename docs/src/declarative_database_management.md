@@ -1,4 +1,5 @@
 # PostgreSQL Database Management
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 CloudNativePG simplifies PostgreSQL database provisioning by automatically
 creating an application database named `app` by default. This default behavior

@@ -1,4 +1,5 @@
 # Custom Pod Controller
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 Kubernetes uses the
 [Controller pattern](https://kubernetes.io/docs/concepts/architecture/controller/)

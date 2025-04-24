@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -19,6 +22,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/cloudnative-pg/machinery/pkg/log"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -39,7 +43,7 @@ var backupLog = log.WithName("backup-resource").WithValues("version", "v1")
 // SetupBackupWebhookWithManager registers the webhook for Backup in the manager.
 func SetupBackupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&apiv1.Backup{}).
-		WithValidator(&BackupCustomValidator{}).
+		WithValidator(newBypassableValidator(&BackupCustomValidator{})).
 		WithDefaulter(&BackupCustomDefaulter{}).
 		Complete()
 }
@@ -166,6 +170,17 @@ func (v *BackupCustomValidator) validate(r *apiv1.Backup) field.ErrorList {
 			r.Spec.OnlineConfiguration,
 			"cannot be empty when the backup method is plugin",
 		))
+	}
+
+	if value := r.Annotations[utils.BackupVolumeSnapshotDeadlineAnnotationName]; value != "" {
+		_, err := strconv.Atoi(value)
+		if err != nil {
+			result = append(result, field.Invalid(
+				field.NewPath("metadata", "annotations", utils.BackupVolumeSnapshotDeadlineAnnotationName),
+				value,
+				"must be an integer",
+			))
+		}
 	}
 
 	return result

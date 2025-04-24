@@ -1,4 +1,5 @@
 # Labels and annotations
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 Resources in Kubernetes are organized in a flat structure, with no hierarchical
 information or relationship between them. However, such resources and objects
@@ -226,6 +227,18 @@ CloudNativePG manages the following predefined annotations:
 
 `cnpg.io/snapshotEndTime`
 :   The time a snapshot was marked as ready to use.
+
+`cnpg.io/validation`
+:   When set to `disabled` on a CloudNativePG-managed custom resource, the
+    validation webhook allows all changes without restriction.
+
+    **⚠️ WARNING:** Disabling validation may permit unsafe or destructive
+    operations. Use this setting with caution and at your own risk.
+
+`cnpg.io/volumeSnapshotDeadline`
+:   Applied to `Backup` and `ScheduledBackup` resources, allows you to control
+    how long the operator should retry recoverable errors before considering the
+    volume snapshot backup failed. In minutes, defaulting to 10.
 
 `kubectl.kubernetes.io/restartedAt`
 :   When available, the time of last requested restart of a Postgres cluster.

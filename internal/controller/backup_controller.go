@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -165,7 +168,7 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		pluginClient.Close(ctx)
 	}()
 
-	ctx = setPluginClientInContext(ctx, pluginClient)
+	ctx = cnpgiClient.SetPluginClientInContext(ctx, pluginClient)
 
 	// Plugin pre-hooks
 	if hookResult := preReconcilePluginHooks(ctx, &cluster, &backup); hookResult.StopReconciliation {
@@ -238,7 +241,10 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			contextLogger.Info("Couldn't find target pod, will retry in 30 seconds", "target",
 				cluster.Status.TargetPrimary)
 			backup.Status.Phase = apiv1.BackupPhasePending
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, r.Status().Patch(ctx, &backup, client.MergeFrom(origBackup))
+			if err := r.Status().Patch(ctx, &backup, client.MergeFrom(origBackup)); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		if err != nil {
 			tryFlagBackupAsFailed(ctx, r.Client, &backup, fmt.Errorf("while getting pod: %w", err))
@@ -253,7 +259,10 @@ func (r *BackupReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			backup.Status.Phase = apiv1.BackupPhasePending
 			r.Recorder.Eventf(&backup, "Warning", "BackupPending", "Backup target pod not ready: %s",
 				cluster.Status.TargetPrimary)
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, r.Status().Patch(ctx, &backup, client.MergeFrom(origBackup))
+			if err := r.Status().Patch(ctx, &backup, client.MergeFrom(origBackup)); err != nil {
+				return ctrl.Result{}, err
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		contextLogger.Info("Starting backup",
@@ -387,8 +396,11 @@ func (r *BackupReconciler) reconcileSnapshotBackup(
 		)
 		origBackup := backup.DeepCopy()
 		backup.Status.Phase = apiv1.BackupPhasePending
-		err := r.Patch(ctx, backup, client.MergeFrom(origBackup))
-		return &ctrl.Result{RequeueAfter: 30 * time.Second}, err
+		if err := r.Patch(ctx, backup, client.MergeFrom(origBackup)); err != nil {
+			return nil, err
+		}
+
+		return &ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	if err != nil {
 		tryFlagBackupAsFailed(ctx, r.Client, backup, fmt.Errorf("while getting pod: %w", err))
@@ -456,10 +468,6 @@ func (r *BackupReconciler) reconcileSnapshotBackup(
 		Build()
 
 	res, err := reconciler.Reconcile(ctx, cluster, backup, targetPod, pvcs)
-	if isErrorRetryable(err) {
-		contextLogger.Error(err, "detected retryable error while executing snapshot backup, retrying...")
-		return &ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-	}
 	if err != nil {
 		// Volume Snapshot errors are not retryable, we need to set this backup as failed
 		// and un-fence the Pod
@@ -567,11 +575,6 @@ func updateClusterWithSnapshotsBackupTimes(
 		}
 	}
 	return nil
-}
-
-// isErrorRetryable detects is an error is retryable or not
-func isErrorRetryable(err error) bool {
-	return apierrs.IsServerTimeout(err) || apierrs.IsConflict(err) || apierrs.IsInternalError(err)
 }
 
 // getBackupTargetPod returns the pod that should run the backup according to the current

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,13 +13,14 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
 
 import (
 	"context"
-	"crypto/tls"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -46,7 +48,6 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/controller/roles"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/controller/slots/reconciler"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/utils"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/certs"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/configfile"
 	postgresManagement "github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/constants"
@@ -88,7 +89,12 @@ func (r *InstanceReconciler) Reconcile(
 	_ reconcile.Request,
 ) (reconcile.Result, error) {
 	// set up a convenient contextLog object so we don't have to type request over and over again
-	contextLogger := log.FromContext(ctx)
+	contextLogger := log.FromContext(ctx).
+		WithValues(
+			"instance", r.instance.GetPodName(),
+			"cluster", r.instance.GetClusterName(),
+			"namespace", r.instance.GetNamespaceName(),
+		)
 
 	// if the context has already been cancelled,
 	// trying to reconcile would just lead to misleading errors being reported
@@ -111,7 +117,7 @@ func (r *InstanceReconciler) Reconcile(
 	}
 
 	// Print the Cluster
-	contextLogger.Debug("Reconciling Cluster", "cluster", cluster)
+	contextLogger.Debug("Reconciling Cluster")
 
 	// Reconcile PostgreSQL instance parameters
 	r.reconcileInstance(cluster)
@@ -151,7 +157,10 @@ func (r *InstanceReconciler) Reconcile(
 
 	// Reconcile secrets and cryptographic material
 	// This doesn't need the PG connection, but it needs to reload it in case of changes
-	reloadNeeded := r.RefreshSecrets(ctx, cluster)
+	reloadNeeded, err := r.certificateReconciler.RefreshSecrets(ctx, cluster)
+	if err != nil {
+		return reconcile.Result{}, fmt.Errorf("while refreshing secrets: %w", err)
+	}
 
 	reloadConfigNeeded, err := r.refreshConfigurationFiles(ctx, cluster)
 	if err != nil {
@@ -202,7 +211,7 @@ func (r *InstanceReconciler) Reconcile(
 				"tokenContent", tokenError.TokenContent(),
 			)
 			// We should be waiting for WAL recovery to reach the LSN in the token
-			return reconcile.Result{RequeueAfter: 10 * time.Second}, err
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 	}
 
@@ -330,8 +339,8 @@ func (r *InstanceReconciler) restartPrimaryInplaceIfRequested(
 			ctx,
 			r.client,
 			cluster,
-			clusterstatus.SetPhaseTX(apiv1.PhaseHealthy, "Primary instance restarted in-place"),
-			clusterstatus.SetClusterReadyConditionTX,
+			clusterstatus.SetPhase(apiv1.PhaseHealthy, "Primary instance restarted in-place"),
+			clusterstatus.SetClusterReadyCondition,
 		)
 	}
 	return false, nil
@@ -884,74 +893,6 @@ func (r *InstanceReconciler) reconcileMonitoringQueries(
 	r.metricsServerExporter.SetCustomQueries(queriesCollector)
 }
 
-// RefreshSecrets is called when the PostgreSQL secrets are changed
-// and will refresh the contents of the file inside the Pod, without
-// reloading the actual PostgreSQL instance.
-//
-// It returns a boolean flag telling if something changed. Usually
-// the invoker will check that flag and reload the PostgreSQL
-// instance it is up.
-//
-// This function manages its own errors by logging them, so the
-// user cannot easily tell if the operation has been done completely.
-// The rationale behind this is:
-//
-//  1. when invoked at the startup of the instance manager, PostgreSQL
-//     is not up. If this raise an error, then PostgreSQL won't
-//     be able to start correctly (TLS certs are missing, i.e.),
-//     making no difference between returning an error or not
-//
-//  2. when invoked inside the reconciliation loop, if the operation
-//     raise an error, it's pointless to retry. The only way to recover
-//     from such an error is wait for the CNPG operator to refresh the
-//     resource version of the secrets to be used, and in that case a
-//     reconciliation loop will be started again.
-func (r *InstanceReconciler) RefreshSecrets(
-	ctx context.Context,
-	cluster *apiv1.Cluster,
-) bool {
-	contextLogger := log.FromContext(ctx)
-
-	changed := false
-
-	serverSecretChanged, err := r.refreshServerCertificateFiles(ctx, cluster)
-	if err == nil {
-		changed = changed || serverSecretChanged
-	} else if !apierrors.IsNotFound(err) {
-		contextLogger.Error(err, "Error while getting server secret")
-	}
-
-	replicationSecretChanged, err := r.refreshReplicationUserCertificate(ctx, cluster)
-	if err == nil {
-		changed = changed || replicationSecretChanged
-	} else if !apierrors.IsNotFound(err) {
-		contextLogger.Error(err, "Error while getting streaming replication secret")
-	}
-
-	clientCaSecretChanged, err := r.refreshClientCA(ctx, cluster)
-	if err == nil {
-		changed = changed || clientCaSecretChanged
-	} else if !apierrors.IsNotFound(err) {
-		contextLogger.Error(err, "Error while getting cluster CA Client secret")
-	}
-
-	serverCaSecretChanged, err := r.refreshServerCA(ctx, cluster)
-	if err == nil {
-		changed = changed || serverCaSecretChanged
-	} else if !apierrors.IsNotFound(err) {
-		contextLogger.Error(err, "Error while getting cluster CA Server secret")
-	}
-
-	barmanEndpointCaSecretChanged, err := r.refreshBarmanEndpointCA(ctx, cluster)
-	if err == nil {
-		changed = changed || barmanEndpointCaSecretChanged
-	} else if !apierrors.IsNotFound(err) {
-		contextLogger.Error(err, "Error while getting barman endpoint CA secret")
-	}
-
-	return changed
-}
-
 // reconcileInstance sets PostgreSQL instance parameters to current values
 func (r *InstanceReconciler) reconcileInstance(cluster *apiv1.Cluster) {
 	detectRequiresDesignatedPrimaryTransition := func() bool {
@@ -1066,8 +1007,8 @@ func (r *InstanceReconciler) processConfigReloadAndManageRestart(ctx context.Con
 		ctx,
 		r.client,
 		cluster,
-		clusterstatus.SetPhaseTX(phase, phaseReason),
-		clusterstatus.SetClusterReadyConditionTX,
+		clusterstatus.SetPhase(phase, phaseReason),
+		clusterstatus.SetClusterReadyCondition,
 	)
 }
 
@@ -1090,131 +1031,9 @@ func (r *InstanceReconciler) triggerRestartForDecrease(ctx context.Context, clus
 		ctx,
 		r.client,
 		cluster,
-		clusterstatus.SetPhaseTX(phase, phaseReason),
-		clusterstatus.SetClusterReadyConditionTX,
+		clusterstatus.SetPhase(phase, phaseReason),
+		clusterstatus.SetClusterReadyCondition,
 	)
-}
-
-// refreshCertificateFilesFromSecret receive a secret and rewrite the file
-// corresponding to the server certificate
-func (r *InstanceReconciler) refreshInstanceCertificateFromSecret(
-	secret *corev1.Secret,
-) error {
-	certData, ok := secret.Data[corev1.TLSCertKey]
-	if !ok {
-		return fmt.Errorf("missing %s field in Secret", corev1.TLSCertKey)
-	}
-
-	keyData, ok := secret.Data[corev1.TLSPrivateKeyKey]
-	if !ok {
-		return fmt.Errorf("missing %s field in Secret", corev1.TLSPrivateKeyKey)
-	}
-
-	certificate, err := tls.X509KeyPair(certData, keyData)
-	if err != nil {
-		return fmt.Errorf("failed decoding Secret: %w", err)
-	}
-
-	r.instance.ServerCertificate = &certificate
-
-	return err
-}
-
-// refreshCertificateFilesFromSecret receive a secret and rewrite the file
-// corresponding to the server certificate
-func (r *InstanceReconciler) refreshCertificateFilesFromSecret(
-	ctx context.Context,
-	secret *corev1.Secret,
-	certificateLocation string,
-	privateKeyLocation string,
-) (bool, error) {
-	contextLogger := log.FromContext(ctx)
-
-	certificate, ok := secret.Data[corev1.TLSCertKey]
-	if !ok {
-		return false, fmt.Errorf("missing %s field in Secret", corev1.TLSCertKey)
-	}
-
-	privateKey, ok := secret.Data[corev1.TLSPrivateKeyKey]
-	if !ok {
-		return false, fmt.Errorf("missing %s field in Secret", corev1.TLSPrivateKeyKey)
-	}
-
-	certificateIsChanged, err := fileutils.WriteFileAtomic(certificateLocation, certificate, 0o600)
-	if err != nil {
-		return false, fmt.Errorf("while writing server certificate: %w", err)
-	}
-
-	if certificateIsChanged {
-		contextLogger.Info("Refreshed configuration file",
-			"filename", certificateLocation,
-			"secret", secret.Name)
-	}
-
-	privateKeyIsChanged, err := fileutils.WriteFileAtomic(privateKeyLocation, privateKey, 0o600)
-	if err != nil {
-		return false, fmt.Errorf("while writing server private key: %w", err)
-	}
-
-	if privateKeyIsChanged {
-		contextLogger.Info("Refreshed configuration file",
-			"filename", privateKeyLocation,
-			"secret", secret.Name)
-	}
-
-	return certificateIsChanged || privateKeyIsChanged, nil
-}
-
-// refreshCAFromSecret receive a secret and rewrite the ca.crt file to the provided location
-func (r *InstanceReconciler) refreshCAFromSecret(
-	ctx context.Context,
-	secret *corev1.Secret,
-	destLocation string,
-) (bool, error) {
-	caCertificate, ok := secret.Data[certs.CACertKey]
-	if !ok {
-		return false, fmt.Errorf("missing %s entry in Secret", certs.CACertKey)
-	}
-
-	changed, err := fileutils.WriteFileAtomic(destLocation, caCertificate, 0o600)
-	if err != nil {
-		return false, fmt.Errorf("while writing server certificate: %w", err)
-	}
-
-	if changed {
-		log.FromContext(ctx).Info("Refreshed configuration file",
-			"filename", destLocation,
-			"secret", secret.Name)
-	}
-
-	return changed, nil
-}
-
-// refreshFileFromSecret receive a secret and rewrite the file corresponding to the key to the provided location
-func (r *InstanceReconciler) refreshFileFromSecret(
-	ctx context.Context,
-	secret *corev1.Secret,
-	key, destLocation string,
-) (bool, error) {
-	contextLogger := log.FromContext(ctx)
-	data, ok := secret.Data[key]
-	if !ok {
-		return false, fmt.Errorf("missing %s entry in Secret", key)
-	}
-
-	changed, err := fileutils.WriteFileAtomic(destLocation, data, 0o600)
-	if err != nil {
-		return false, fmt.Errorf("while writing file: %w", err)
-	}
-
-	if changed {
-		contextLogger.Info("Refreshed configuration file",
-			"filename", destLocation,
-			"secret", secret.Name,
-			"key", key)
-	}
-
-	return changed, nil
 }
 
 // Reconciler primary logic. DB needed.

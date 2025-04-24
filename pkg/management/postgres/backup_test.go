@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package postgres
@@ -22,7 +25,6 @@ import (
 	"strings"
 
 	barmanBackup "github.com/cloudnative-pg/barman-cloud/pkg/backup"
-	barmanCapabilities "github.com/cloudnative-pg/barman-cloud/pkg/capabilities"
 	"github.com/cloudnative-pg/machinery/pkg/log"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -117,8 +119,6 @@ var _ = Describe("testing backup command", func() {
 				},
 			},
 		}
-		capabilities, err := barmanCapabilities.CurrentCapabilities()
-		Expect(err).ShouldNot(HaveOccurred())
 		backupCommand = BackupCommand{
 			Cluster: cluster,
 			Backup:  backup,
@@ -127,11 +127,10 @@ var _ = Describe("testing backup command", func() {
 				WithObjects(cluster, backup).
 				WithStatusSubresource(cluster, backup).
 				Build(),
-			Recorder:     &record.FakeRecorder{},
-			Env:          os.Environ(),
-			Log:          log.FromContext(context.Background()),
-			Instance:     &Instance{},
-			Capabilities: capabilities,
+			Recorder: &record.FakeRecorder{},
+			Env:      os.Environ(),
+			Log:      log.FromContext(context.Background()),
+			Instance: &Instance{},
 		}
 	})
 
@@ -150,39 +149,32 @@ var _ = Describe("testing backup command", func() {
 
 var _ = Describe("generate backup options", func() {
 	const namespace = "test"
-	capabilities := barmanCapabilities.Capabilities{
-		Version:                    nil,
-		HasAzure:                   true,
-		HasS3:                      true,
-		HasGoogle:                  true,
-		HasRetentionPolicy:         true,
-		HasTags:                    true,
-		HasCheckWalArchive:         true,
-		HasSnappy:                  true,
-		HasErrorCodesForWALRestore: true,
-		HasAzureManagedIdentity:    true,
-	}
-	cluster := &apiv1.Cluster{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: namespace},
-		Spec: apiv1.ClusterSpec{
-			Backup: &apiv1.BackupConfiguration{
-				BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{
-					Data: &apiv1.DataBackupConfiguration{
-						Compression:         "gzip",
-						Encryption:          "aes256",
-						ImmediateCheckpoint: true,
-						Jobs:                ptr.To(int32(2)),
+
+	var cluster *apiv1.Cluster
+
+	BeforeEach(func() {
+		cluster = &apiv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-cluster", Namespace: namespace},
+			Spec: apiv1.ClusterSpec{
+				Backup: &apiv1.BackupConfiguration{
+					BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{
+						Data: &apiv1.DataBackupConfiguration{
+							Compression:         "gzip",
+							Encryption:          "aes256",
+							ImmediateCheckpoint: true,
+							Jobs:                ptr.To(int32(2)),
+						},
 					},
 				},
 			},
-		},
-	}
+		}
+	})
 
 	It("should generate correct options", func() {
 		extraOptions := []string{"--min-chunk-size=5MB", "--read-timeout=60", "-vv"}
 		cluster.Spec.Backup.BarmanObjectStore.Data.AdditionalCommandArgs = extraOptions
 
-		cmd := barmanBackup.NewBackupCommand(cluster.Spec.Backup.BarmanObjectStore, &capabilities)
+		cmd := barmanBackup.NewBackupCommand(cluster.Spec.Backup.BarmanObjectStore)
 		options, err := cmd.GetDataConfiguration([]string{})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -203,7 +195,7 @@ var _ = Describe("generate backup options", func() {
 			"--encryption=aes256",
 		}
 		cluster.Spec.Backup.BarmanObjectStore.Data.AdditionalCommandArgs = extraOptions
-		cmd := barmanBackup.NewBackupCommand(cluster.Spec.Backup.BarmanObjectStore, &capabilities)
+		cmd := barmanBackup.NewBackupCommand(cluster.Spec.Backup.BarmanObjectStore)
 		options, err := cmd.GetDataConfiguration([]string{})
 		Expect(err).ToNot(HaveOccurred())
 

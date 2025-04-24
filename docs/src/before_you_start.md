@@ -1,4 +1,5 @@
 # Before You Start
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 Before we get started, it is essential to go over some terminology that is
 specific to Kubernetes and PostgreSQL.

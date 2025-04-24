@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package specs contains the specification of the K8s resources
@@ -19,6 +22,7 @@ limitations under the License.
 package specs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -27,12 +31,15 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/cloudnative-pg/machinery/pkg/log"
 	jsonpatch "github.com/evanphx/json-patch/v5"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin"
+	cnpgiClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/url"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
@@ -169,8 +176,8 @@ func CreatePodEnvConfig(cluster apiv1.Cluster, podName string) EnvConfig {
 	return config
 }
 
-// CreateClusterPodSpec computes the PodSpec corresponding to a cluster
-func CreateClusterPodSpec(
+// createClusterPodSpec computes the PodSpec corresponding to a cluster
+func createClusterPodSpec(
 	podName string,
 	cluster apiv1.Cluster,
 	envConfig EnvConfig,
@@ -204,11 +211,11 @@ func createPostgresContainers(cluster apiv1.Cluster, envConfig EnvConfig, enable
 	containers := []corev1.Container{
 		{
 			Name:            PostgresContainerName,
-			Image:           cluster.GetImageName(),
+			Image:           cluster.Status.Image,
 			ImagePullPolicy: cluster.Spec.ImagePullPolicy,
 			Env:             envConfig.EnvVars,
 			EnvFrom:         envConfig.EnvFrom,
-			VolumeMounts:    createPostgresVolumeMounts(cluster),
+			VolumeMounts:    CreatePostgresVolumeMounts(cluster),
 			// This is the default startup probe, and can be overridden
 			// the user configuration in cluster.spec.probes.startup
 			StartupProbe: &corev1.Probe{
@@ -443,15 +450,63 @@ func CreatePodSecurityContext(seccompProfile *corev1.SeccompProfile, user, group
 	}
 }
 
-// PodWithExistingStorage create a new instance with an existing storage
-func PodWithExistingStorage(cluster apiv1.Cluster, nodeSerial int) (*corev1.Pod, error) {
+// NewInstance creates a new instance Pod with the plugin patches applied
+func NewInstance(
+	ctx context.Context,
+	cluster apiv1.Cluster,
+	nodeSerial int,
+	// tlsEnabled TODO: remove when we drop the support for the instances created without TLS
+	tlsEnabled bool,
+) (*corev1.Pod, error) {
+	contextLogger := log.FromContext(ctx).WithName("new_instance")
+
+	pod, err := buildInstance(cluster, nodeSerial, tlsEnabled)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		if pod == nil {
+			return
+		}
+		if podSpecMarshaled, marshalErr := json.Marshal(pod.Spec); marshalErr == nil {
+			pod.Annotations[utils.PodSpecAnnotationName] = string(podSpecMarshaled)
+		}
+	}()
+
+	pluginClient := cnpgiClient.GetPluginClientFromContext(ctx)
+	if pluginClient == nil {
+		contextLogger.Trace("skipping NewInstance, cannot find the plugin client inside the context")
+		return pod, nil
+	}
+
+	contextLogger.Trace("correctly loaded the plugin client for instance evaluation")
+
+	podClientObject, err := pluginClient.LifecycleHook(ctx, plugin.OperationVerbEvaluate, &cluster, pod)
+	if err != nil {
+		return nil, fmt.Errorf("while invoking the lifecycle instance evaluation hook: %w", err)
+	}
+
+	var ok bool
+	pod, ok = podClientObject.(*corev1.Pod)
+	if !ok {
+		return nil, fmt.Errorf("while casting the clientObject to the pod type")
+	}
+
+	return pod, nil
+}
+
+func buildInstance(
+	cluster apiv1.Cluster,
+	nodeSerial int,
+	tlsEnabled bool,
+) (*corev1.Pod, error) {
 	podName := GetInstanceName(cluster.Name, nodeSerial)
 	gracePeriod := int64(cluster.GetMaxStopDelay())
 
 	envConfig := CreatePodEnvConfig(cluster, podName)
 
-	tlsEnabled := true
-	podSpec := CreateClusterPodSpec(podName, cluster, envConfig, gracePeriod, tlsEnabled)
+	podSpec := createClusterPodSpec(podName, cluster, envConfig, gracePeriod, tlsEnabled)
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -468,10 +523,6 @@ func PodWithExistingStorage(cluster apiv1.Cluster, nodeSerial int) (*corev1.Pod,
 			Namespace: cluster.Namespace,
 		},
 		Spec: podSpec,
-	}
-
-	if podSpecMarshaled, err := json.Marshal(podSpec); err == nil {
-		pod.Annotations[utils.PodSpecAnnotationName] = string(podSpecMarshaled)
 	}
 
 	if cluster.Spec.PriorityClassName != "" {

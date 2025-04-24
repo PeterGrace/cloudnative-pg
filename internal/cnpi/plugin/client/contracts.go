@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package client
@@ -24,9 +27,9 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/connection"
+	contextutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils/context"
 )
 
 // Client describes a set of behaviour needed to properly handle all the plugin client expected features
@@ -40,6 +43,26 @@ type Client interface {
 	RestoreJobHooksCapabilities
 }
 
+// SetPluginClientInContext records the plugin client in the given context
+func SetPluginClientInContext(ctx context.Context, client Client) context.Context {
+	return context.WithValue(ctx, contextutils.PluginClientKey, client)
+}
+
+// GetPluginClientFromContext gets the current plugin client from the context
+func GetPluginClientFromContext(ctx context.Context) Client {
+	v := ctx.Value(contextutils.PluginClientKey)
+	if v == nil {
+		return nil
+	}
+
+	cli, ok := v.(Client)
+	if !ok {
+		return nil
+	}
+
+	return cli
+}
+
 // Connection describes a set of behaviour needed to properly handle the plugin connections
 type Connection interface {
 	// Close closes the connection to every loaded plugin
@@ -47,6 +70,8 @@ type Connection interface {
 
 	// MetadataList exposes the metadata of the loaded plugins
 	MetadataList() []connection.Metadata
+
+	HasPlugin(pluginName string) bool
 }
 
 // ClusterCapabilities describes a set of behaviour needed to implement the Cluster capabilities
@@ -151,5 +176,5 @@ type BackupCapabilities interface {
 
 // RestoreJobHooksCapabilities describes a set of behaviour needed to run the Restore
 type RestoreJobHooksCapabilities interface {
-	Restore(ctx context.Context, cluster *apiv1.Cluster) (*restore.RestoreResponse, error)
+	Restore(ctx context.Context, cluster gvkEnsurer) (*restore.RestoreResponse, error)
 }

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -39,6 +42,7 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/system"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
+	contextutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils/context"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/versions"
 )
 
@@ -388,27 +392,7 @@ func (secretResourceVersion *SecretsResourceVersion) SetExternalClusterSecretVer
 
 // SetInContext records the cluster in the given context
 func (cluster *Cluster) SetInContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, utils.ContextKeyCluster, cluster)
-}
-
-// GetImageName get the name of the image that should be used
-// to create the pods
-func (cluster *Cluster) GetImageName() string {
-	// If the image is specified in the status, use that one
-	// It should be there since the first reconciliation
-	if len(cluster.Status.Image) > 0 {
-		return cluster.Status.Image
-	}
-
-	// Fallback to the information we have in the spec
-	if len(cluster.Spec.ImageName) > 0 {
-		return cluster.Spec.ImageName
-	}
-
-	// TODO: check: does a scenario exists in which we do have an imageCatalog
-	//   and no status.image? In that case this should probably error out, not
-	//   returning the default image name.
-	return configuration.Current.PostgresImageName
+	return context.WithValue(ctx, contextutils.ContextKeyCluster, cluster)
 }
 
 // GetPostgresqlVersion gets the PostgreSQL image version detecting it from the
@@ -422,9 +406,16 @@ func (cluster *Cluster) GetPostgresqlVersion() (version.Data, error) {
 		return version.FromTag(strconv.Itoa(cluster.Spec.ImageCatalogRef.Major))
 	}
 
-	image := cluster.GetImageName()
-	tag := reference.New(image).Tag
-	return version.FromTag(tag)
+	if cluster.Status.Image != "" {
+		return version.FromTag(reference.New(cluster.Status.Image).Tag)
+	}
+
+	if cluster.Spec.ImageName != "" {
+		return version.FromTag(reference.New(cluster.Spec.ImageName).Tag)
+	}
+
+	// Fallback for unit tests where a cluster is created without status or defaults
+	return version.FromTag(reference.New(configuration.Current.PostgresImageName).Tag)
 }
 
 // GetImagePullSecret get the name of the pull secret to use
@@ -1042,7 +1033,7 @@ func (cluster *Cluster) GetClusterAltDNSNames() []string {
 			serviceName,
 			fmt.Sprintf("%v.%v", serviceName, cluster.Namespace),
 			fmt.Sprintf("%v.%v.svc", serviceName, cluster.Namespace),
-			fmt.Sprintf("%v.%v.svc.cluster.local", serviceName, cluster.Namespace),
+			fmt.Sprintf("%v.%v.svc.%s", serviceName, cluster.Namespace, configuration.Current.KubernetesClusterDomain),
 		}
 	}
 	altDNSNames := slices.Concat(

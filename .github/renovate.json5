@@ -2,6 +2,9 @@
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: [
     'config:recommended',
+    'customManagers:dockerfileVersions',
+    'docker:pinDigests',
+    'helpers:pinGitHubActionDigests',
   ],
   rebaseWhen: 'never',
   prConcurrentLimit: 5,
@@ -17,6 +20,7 @@
     'contribute/**',
     'licenses/**',
     'pkg/versions/**',
+    'pkg/specs/pgbouncer/',
   ],
   postUpdateOptions: [
     'gomodTidy',
@@ -403,21 +407,17 @@
       ],
     },
     {
-      matchDepTypes: [
-        'action',
+      matchDatasources: [
+        'github-tags'
       ],
       matchUpdateTypes: [
+        'digest',
+        'pinDigest',
         'minor',
-        'patch',
+        'patch'
       ],
       groupName: 'all non-major github action',
-      pinDigests: false,
-    },
-    {
-      matchDepTypes: [
-        'action',
-      ],
-      pinDigests: false,
+      pinDigests: true
     },
     {
       groupName: 'kubernetes CSI',
@@ -444,15 +444,6 @@
         'operator-framework{/,}**',
         'redhat-openshift-ecosystem{/,}**',
         'quay.io/operator-framework{/,}**',
-      ],
-    },
-    {
-      groupName: 'spellcheck',
-      separateMajorMinor: false,
-      pinDigests: false,
-      matchPackageNames: [
-        'jonasbn/github-action-spellcheck{/,}**',
-        'rojopolis/spellcheck-github-actions{/,}**',
       ],
     },
     {

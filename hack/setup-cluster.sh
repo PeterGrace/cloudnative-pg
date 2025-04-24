@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 ##
-## Copyright The CloudNativePG Contributors
+## Copyright © contributors to CloudNativePG, established as
+## CloudNativePG a Series of LF Projects, LLC.
 ##
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -15,6 +16,8 @@
 ## See the License for the specific language governing permissions and
 ## limitations under the License.
 ##
+## SPDX-License-Identifier: Apache-2.0
+##
 
 # standard bash error handling
 set -eEuo pipefail
@@ -24,12 +27,12 @@ if [ "${DEBUG-}" = true ]; then
 fi
 
 # Defaults
-KIND_NODE_DEFAULT_VERSION=v1.32.2
-CSI_DRIVER_HOST_PATH_DEFAULT_VERSION=v1.15.0
-EXTERNAL_SNAPSHOTTER_VERSION=v8.2.0
+KIND_NODE_DEFAULT_VERSION=v1.32.3
+CSI_DRIVER_HOST_PATH_DEFAULT_VERSION=v1.16.1
+EXTERNAL_SNAPSHOTTER_VERSION=v8.2.1
 EXTERNAL_PROVISIONER_VERSION=v5.2.0
-EXTERNAL_RESIZER_VERSION=v1.13.1
-EXTERNAL_ATTACHER_VERSION=v4.8.0
+EXTERNAL_RESIZER_VERSION=v1.13.2
+EXTERNAL_ATTACHER_VERSION=v4.8.1
 K8S_VERSION=${K8S_VERSION-}
 KUBECTL_VERSION=${KUBECTL_VERSION-}
 CSI_DRIVER_HOST_PATH_VERSION=${CSI_DRIVER_HOST_PATH_VERSION:-$CSI_DRIVER_HOST_PATH_DEFAULT_VERSION}
@@ -297,11 +300,18 @@ deploy_csi_host_path() {
   kubectl apply -f "${CSI_BASE_URL}"/external-resizer/"${EXTERNAL_RESIZER_VERSION}"/deploy/kubernetes/rbac.yaml
 
   ## Install driver and plugin
-  kubectl apply -f "${CSI_BASE_URL}"/csi-driver-host-path/"${CSI_DRIVER_HOST_PATH_VERSION}"/deploy/kubernetes-1.27/hostpath/csi-hostpath-driverinfo.yaml
-  kubectl apply -f "${CSI_BASE_URL}"/csi-driver-host-path/"${CSI_DRIVER_HOST_PATH_VERSION}"/deploy/kubernetes-1.27/hostpath/csi-hostpath-plugin.yaml
+  ## Create a temporary file for the modified plugin deployment. This is needed
+  ## because csi-driver-host-path plugin yaml tends to lag behind a few versions.
+  plugin_file="${TEMP_DIR}/csi-hostpath-plugin.yaml"
+  curl -sSL "${CSI_BASE_URL}/csi-driver-host-path/${CSI_DRIVER_HOST_PATH_VERSION}/deploy/kubernetes-1.30/hostpath/csi-hostpath-plugin.yaml" |
+    sed "s|registry.k8s.io/sig-storage/hostpathplugin:.*|registry.k8s.io/sig-storage/hostpathplugin:${CSI_DRIVER_HOST_PATH_VERSION}|g" > "${plugin_file}"
+
+  kubectl apply -f "${CSI_BASE_URL}"/csi-driver-host-path/"${CSI_DRIVER_HOST_PATH_VERSION}"/deploy/kubernetes-1.30/hostpath/csi-hostpath-driverinfo.yaml
+  kubectl apply -f "${plugin_file}"
+  rm "${plugin_file}"
 
   ## create volumesnapshotclass
-  kubectl apply -f "${CSI_BASE_URL}"/csi-driver-host-path/"${CSI_DRIVER_HOST_PATH_VERSION}"/deploy/kubernetes-1.27/hostpath/csi-hostpath-snapshotclass.yaml
+  kubectl apply -f "${CSI_BASE_URL}"/csi-driver-host-path/"${CSI_DRIVER_HOST_PATH_VERSION}"/deploy/kubernetes-1.30/hostpath/csi-hostpath-snapshotclass.yaml
 
   ## Prevent VolumeSnapshot E2e test to fail when taking a
   ## snapshot of a running PostgreSQL instance

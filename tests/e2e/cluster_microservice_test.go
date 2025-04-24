@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package e2e
@@ -21,13 +24,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/cloudnative-pg/machinery/pkg/image/reference"
-	"github.com/cloudnative-pg/machinery/pkg/postgres/version"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/versions"
 	"github.com/cloudnative-pg/cloudnative-pg/tests"
 	"github.com/cloudnative-pg/cloudnative-pg/tests/utils/clusterutils"
 	"github.com/cloudnative-pg/cloudnative-pg/tests/utils/exec"
@@ -171,7 +171,7 @@ var _ = Describe("Imports with Microservice Approach", Label(tests.LabelImportin
 		Expect(postgresImage).ShouldNot(BeEmpty(), "POSTGRES_IMG env should not be empty")
 
 		// this test case is only applicable if we are not already on the latest major
-		if shouldSkip(postgresImage) {
+		if postgres.IsLatestMajor(postgresImage) {
 			Skip("Already running on the latest major. This test is not applicable for PostgreSQL " + postgresImage)
 		}
 
@@ -190,20 +190,6 @@ var _ = Describe("Imports with Microservice Approach", Label(tests.LabelImportin
 		})
 	})
 })
-
-// shouldSkip skip this test if the current POSTGRES_IMG is already the latest major
-func shouldSkip(postgresImage string) bool {
-	// Get the current tag
-	currentImageReference := reference.New(postgresImage)
-	currentImageVersion, err := version.FromTag(currentImageReference.Tag)
-	Expect(err).ToNot(HaveOccurred())
-	// Get the default tag
-	defaultImageReference := reference.New(versions.DefaultImageName)
-	defaultImageVersion, err := version.FromTag(defaultImageReference.Tag)
-	Expect(err).ToNot(HaveOccurred())
-
-	return currentImageVersion.Major() >= defaultImageVersion.Major()
-}
 
 // assertCreateTableWithDataOnSourceCluster will create on the source Cluster, as postgres superUser:
 // 1. a new user `micro`

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,11 +13,15 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -69,12 +74,42 @@ var (
 			return isUsefulClusterSecret(e.ObjectNew)
 		},
 	}
+)
 
-	nodesPredicate = predicate.Funcs{
+func (r *ClusterReconciler) nodesPredicate() predicate.Funcs {
+	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldNode, oldOk := e.ObjectOld.(*corev1.Node)
 			newNode, newOk := e.ObjectNew.(*corev1.Node)
-			return oldOk && newOk && oldNode.Spec.Unschedulable != newNode.Spec.Unschedulable
+			if !oldOk || !newOk {
+				return false
+			}
+
+			if oldNode.Spec.Unschedulable != newNode.Spec.Unschedulable {
+				return true
+			}
+
+			// check if any of the watched drain taints have changed.
+			for _, taint := range r.drainTaints {
+				oldTaintIndex := slices.IndexFunc(oldNode.Spec.Taints, func(t corev1.Taint) bool { return t.Key == taint })
+				newTaintIndex := slices.IndexFunc(newNode.Spec.Taints, func(t corev1.Taint) bool { return t.Key == taint })
+
+				switch {
+				case oldTaintIndex == -1 && newTaintIndex == -1:
+					continue
+				case oldTaintIndex == -1 || newTaintIndex == -1:
+					return true
+				}
+
+				// exists in both - check if value or effect is different
+				oldTaint := oldNode.Spec.Taints[oldTaintIndex]
+				newTaint := newNode.Spec.Taints[newTaintIndex]
+				if oldTaint.Value != newTaint.Value || oldTaint.Effect != newTaint.Effect {
+					return true
+				}
+			}
+
+			return false
 		},
 		CreateFunc: func(_ event.CreateEvent) bool {
 			return false
@@ -86,7 +121,7 @@ var (
 			return false
 		},
 	}
-)
+}
 
 func isOwnedByClusterOrSatisfiesPredicate(
 	object client.Object,

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package controller contains the controller of the CRD
@@ -54,6 +57,7 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/hibernation"
 	instanceReconciler "github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/instance"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/majorupgrade"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/persistentvolumeclaim"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/replicaclusterswitch"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
@@ -86,6 +90,7 @@ type ClusterReconciler struct {
 	InstanceClient  remote.InstanceClient
 	Plugins         repository.Interface
 
+	drainTaints    []string
 	rolloutManager *rolloutManager.Manager
 }
 
@@ -94,6 +99,7 @@ func NewClusterReconciler(
 	mgr manager.Manager,
 	discoveryClient *discovery.DiscoveryClient,
 	plugins repository.Interface,
+	drainTaints []string,
 ) *ClusterReconciler {
 	return &ClusterReconciler{
 		InstanceClient:  remote.NewClient().Instance(),
@@ -106,6 +112,7 @@ func NewClusterReconciler(
 			configuration.Current.GetClustersRolloutDelay(),
 			configuration.Current.GetInstancesRolloutDelay(),
 		),
+		drainTaints: drainTaints,
 	}
 }
 
@@ -207,7 +214,7 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		pluginClient.Close(ctx)
 	}()
 
-	ctx = setPluginClientInContext(ctx, pluginClient)
+	ctx = cnpgiClient.SetPluginClientInContext(ctx, pluginClient)
 
 	// Run the inner reconcile loop. Translate any ErrNextLoop to an errorless return
 	result, err := r.reconcile(ctx, cluster)
@@ -326,10 +333,12 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, cluster *apiv1.Cluste
 	if cluster.ShouldPromoteFromReplicaCluster() {
 		if !(cluster.Status.Phase == apiv1.PhaseReplicaClusterPromotion ||
 			cluster.Status.Phase == apiv1.PhaseUnrecoverable) {
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, r.RegisterPhase(ctx,
+			if err := r.RegisterPhase(ctx,
 				cluster,
 				apiv1.PhaseReplicaClusterPromotion,
-				"Replica cluster promotion in progress")
+				"Replica cluster promotion in progress"); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
@@ -410,15 +419,17 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, cluster *apiv1.Cluste
 		contextLogger.Warning(
 			"Failed to extract instance status from ready instances. Attempting to requeue...",
 		)
-		registerPhaseErr := r.RegisterPhase(
+		if err := r.RegisterPhase(
 			ctx,
 			cluster,
 			"Instance Status Extraction Error: HTTP communication issue",
 			"Communication issue detected: The operator was unable to receive the status from all the ready instances. "+
 				"This may be due to network restrictions such as NetworkPolicy and/or any other network plugin setting. "+
 				"Please verify your network configuration.",
-		)
-		return ctrl.Result{RequeueAfter: 10 * time.Second}, registerPhaseErr
+		); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	if res, err := r.ensureNoFailoverOnFullDisk(ctx, cluster, instancesStatus); err != nil || !res.IsZero() {
@@ -459,7 +470,7 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, cluster *apiv1.Cluste
 			// we need to wait for it to be refreshed
 			contextLogger.Info(
 				"Waiting for the Kubelet to refresh the readiness probe",
-				"mostAdvancedInstanceName", mostAdvancedInstance.Node,
+				"mostAdvancedInstanceName", mostAdvancedInstance.Pod.Name,
 				"hasHTTPStatus", hasHTTPStatus,
 				"isPodReady", isPodReady)
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
@@ -519,7 +530,7 @@ func (r *ClusterReconciler) reconcile(ctx context.Context, cluster *apiv1.Cluste
 		return hookResult.Result, hookResult.Err
 	}
 
-	return setStatusPluginHook(ctx, r.Client, getPluginClientFromContext(ctx), cluster)
+	return setStatusPluginHook(ctx, r.Client, cnpgiClient.GetPluginClientFromContext(ctx), cluster)
 }
 
 func (r *ClusterReconciler) ensureNoFailoverOnFullDisk(
@@ -546,13 +557,15 @@ func (r *ClusterReconciler) ensureNoFailoverOnFullDisk(
 
 	reason := "Insufficient disk space detected in one or more pods is preventing PostgreSQL from running." +
 		"Please verify your storage settings. Further information inside .status.instancesReportedState"
-	registerPhaseErr := r.RegisterPhase(
+	if err := r.RegisterPhase(
 		ctx,
 		cluster,
 		"Not enough disk space",
 		reason,
-	)
-	return ctrl.Result{RequeueAfter: 10 * time.Second}, registerPhaseErr
+	); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 }
 
 func (r *ClusterReconciler) handleSwitchover(
@@ -726,14 +739,31 @@ func (r *ClusterReconciler) reconcileResources(
 		return res, err
 	}
 
+	// In-place Postgres major version upgrades
+	if result, err := majorupgrade.Reconcile(
+		ctx,
+		r.Client,
+		cluster,
+		resources.instances.Items,
+		resources.pvcs.Items,
+		resources.jobs.Items,
+	); err != nil {
+		return ctrl.Result{}, fmt.Errorf("cannot reconcile in-place major version upgrades: %w", err)
+	} else if result != nil {
+		return *result, err
+	}
+
 	// Reconcile Pods
 	if res, err := r.reconcilePods(ctx, cluster, resources, instancesStatus); !res.IsZero() || err != nil {
 		return res, err
 	}
 
 	if len(resources.instances.Items) > 0 && resources.noInstanceIsAlive() {
-		return ctrl.Result{RequeueAfter: 1 * time.Second}, r.RegisterPhase(ctx, cluster, apiv1.PhaseUnrecoverable,
-			"No pods are active, the cluster needs manual intervention ")
+		if err := r.RegisterPhase(ctx, cluster, apiv1.PhaseUnrecoverable,
+			"No pods are active, the cluster needs manual intervention "); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 	}
 
 	// If we still need more instances, we need to wait before setting healthy status
@@ -819,8 +849,15 @@ func (r *ClusterReconciler) processUnschedulableInstances(
 		}
 
 		if podRollout := isPodNeedingRollout(ctx, pod, cluster); podRollout.required {
-			return &ctrl.Result{RequeueAfter: 1 * time.Second},
-				r.upgradePod(ctx, cluster, pod, fmt.Sprintf("recreating unschedulable pod: %s", podRollout.reason))
+			if err := r.upgradePod(
+				ctx,
+				cluster,
+				pod,
+				fmt.Sprintf("recreating unschedulable pod: %s", podRollout.reason),
+			); err != nil {
+				return nil, err
+			}
+			return &ctrl.Result{RequeueAfter: 1 * time.Second}, nil
 		}
 
 		if !cluster.IsNodeMaintenanceWindowInProgress() || cluster.IsReusePVCEnabled() {
@@ -1078,7 +1115,7 @@ func (r *ClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.mapNodeToClusters()),
-			builder.WithPredicates(nodesPredicate),
+			builder.WithPredicates(r.nodesPredicate()),
 		).
 		Watches(
 			&apiv1.ImageCatalog{},
@@ -1091,6 +1128,19 @@ func (r *ClusterReconciler) SetupWithManager(ctx context.Context, mgr ctrl.Manag
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Complete(r)
+}
+
+// jobOwnerIndexFunc maps a job definition to its owning cluster and
+// is used as an index function to speed up the lookup of jobs
+// created by the operator.
+func jobOwnerIndexFunc(rawObj client.Object) []string {
+	job := rawObj.(*batchv1.Job)
+
+	if ownerName, ok := IsOwnedByCluster(job); ok {
+		return []string{ownerName}
+	}
+
+	return nil
 }
 
 // createFieldIndexes creates the indexes needed by this controller
@@ -1197,15 +1247,7 @@ func (r *ClusterReconciler) createFieldIndexes(ctx context.Context, mgr ctrl.Man
 	return mgr.GetFieldIndexer().IndexField(
 		ctx,
 		&batchv1.Job{},
-		jobOwnerKey, func(rawObj client.Object) []string {
-			job := rawObj.(*batchv1.Job)
-
-			if ownerName, ok := IsOwnedByCluster(job); ok {
-				return []string{ownerName}
-			}
-
-			return nil
-		})
+		jobOwnerKey, jobOwnerIndexFunc)
 }
 
 // IsOwnedByCluster checks that an object is owned by a Cluster and returns
@@ -1366,11 +1408,13 @@ func filterClustersUsingConfigMap(
 func (r *ClusterReconciler) mapNodeToClusters() handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
 		node := obj.(*corev1.Node)
+
 		// exit if the node is schedulable (e.g. not cordoned)
 		// could be expanded here with other conditions (e.g. pressure or issues)
-		if !node.Spec.Unschedulable {
+		if !isNodeUnschedulableOrBeingDrained(node, r.drainTaints) {
 			return nil
 		}
+
 		var childPods corev1.PodList
 		// get all the pods handled by the operator on that node
 		err := r.List(ctx, &childPods,

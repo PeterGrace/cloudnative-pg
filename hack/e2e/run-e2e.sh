@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 ##
-## Copyright The CloudNativePG Contributors
+## Copyright © contributors to CloudNativePG, established as
+## CloudNativePG a Series of LF Projects, LLC.
 ##
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -15,6 +16,8 @@
 ## See the License for the specific language governing permissions and
 ## limitations under the License.
 ##
+## SPDX-License-Identifier: Apache-2.0
+##
 
 # standard bash error handling
 set -eEuo pipefail
@@ -25,6 +28,8 @@ fi
 
 ROOT_DIR=$(realpath "$(dirname "$0")/../../")
 CONTROLLER_IMG=${CONTROLLER_IMG:-$("${ROOT_DIR}/hack/setup-cluster.sh" print-image)}
+CONTROLLER_IMG_DIGEST=${CONTROLLER_IMG_DIGEST:-""}
+CONTROLLER_IMG_PRIME_DIGEST=${CONTROLLER_IMG_PRIME_DIGEST:-""}
 TEST_UPGRADE_TO_V1=${TEST_UPGRADE_TO_V1:-true}
 POSTGRES_IMG=${POSTGRES_IMG:-$(grep 'DefaultImageName.*=' "${ROOT_DIR}/pkg/versions/versions.go" | cut -f 2 -d \")}
 # variable need export otherwise be invisible in e2e test case
@@ -84,6 +89,7 @@ if [[ "${TEST_UPGRADE_TO_V1}" != "false" ]] && [[ "${TEST_CLOUD_VENDOR}" != "ocp
   #   - built and pushed to nodes or the local registry (by setup-cluster.sh)
   #   - built by the `buildx` step in continuous delivery and pushed to the test registry
   make CONTROLLER_IMG="${CONTROLLER_IMG}" POSTGRES_IMG="${POSTGRES_IMG}" \
+   CONTROLLER_IMG_DIGEST="${CONTROLLER_IMG_DIGEST}" \
    OPERATOR_MANIFEST_PATH="${ROOT_DIR}/tests/e2e/fixtures/upgrade/current-manifest.yaml" \
    generate-manifest
   # In order to test the case of upgrading from the current operator
@@ -98,6 +104,7 @@ if [[ "${TEST_UPGRADE_TO_V1}" != "false" ]] && [[ "${TEST_CLOUD_VENDOR}" != "ocp
   # added to the tag by convention, which assumes the image is in place.
   # This manifest is used to upgrade into in the upgrade_test E2E.
   make CONTROLLER_IMG="${CONTROLLER_IMG}-prime" POSTGRES_IMG="${POSTGRES_IMG}" \
+   CONTROLLER_IMG_DIGEST="${CONTROLLER_IMG_PRIME_DIGEST}" \
    OPERATOR_MANIFEST_PATH="${ROOT_DIR}/tests/e2e/fixtures/upgrade/current-manifest-prime.yaml" \
    generate-manifest
 

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package postgres
@@ -31,6 +34,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/blang/semver"
@@ -210,8 +214,30 @@ type Instance struct {
 	// MetricsPortTLS enables TLS on the port used to publish metrics over HTTP/HTTPS
 	MetricsPortTLS bool
 
+	serverCertificateHandler serverCertificateHandler
+}
+
+type serverCertificateHandler struct {
+	operationInProgress sync.Mutex
+
 	// ServerCertificate is the certificate we use to serve https connections
 	ServerCertificate *tls.Certificate
+}
+
+// GetServerCertificate returns the server certificate for the instance
+func (instance *Instance) GetServerCertificate() *tls.Certificate {
+	instance.serverCertificateHandler.operationInProgress.Lock()
+	defer instance.serverCertificateHandler.operationInProgress.Unlock()
+
+	return instance.serverCertificateHandler.ServerCertificate
+}
+
+// SetServerCertificate sets the server certificate for the instance
+func (instance *Instance) SetServerCertificate(cert *tls.Certificate) {
+	instance.serverCertificateHandler.operationInProgress.Lock()
+	defer instance.serverCertificateHandler.operationInProgress.Unlock()
+
+	instance.serverCertificateHandler.ServerCertificate = cert
 }
 
 // SetPostgreSQLAutoConfWritable allows or deny writes to the
@@ -268,7 +294,7 @@ func (instance *Instance) CheckHasDiskSpaceForWAL(ctx context.Context) (bool, er
 	}
 
 	pgControlData := utils.ParsePgControldataOutput(pgControlDataString)
-	walSegmentSizeString, ok := pgControlData["Bytes per WAL segment"]
+	walSegmentSizeString, ok := pgControlData[utils.PgControlDataBytesPerWALSegment]
 	if !ok {
 		return false, fmt.Errorf("no 'Bytes per WAL segment' section into pg_controldata output")
 	}

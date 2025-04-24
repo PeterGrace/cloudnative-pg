@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -30,7 +33,7 @@ import (
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	schemeBuilder "github.com/cloudnative-pg/cloudnative-pg/internal/scheme"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/persistentvolumeclaim"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -169,12 +172,18 @@ var _ = Describe("cluster scale pod and job deletion logic", func() {
 	)
 
 	BeforeEach(func() {
-		fakeClientSet = fake.NewClientBuilder().WithScheme(schemeBuilder.BuildWithAllKnownScheme()).Build()
+		fakeClientSet = fake.
+			NewClientBuilder().
+			WithScheme(schemeBuilder.BuildWithAllKnownScheme()).
+			WithIndex(&batchv1.Job{}, jobOwnerKey, jobOwnerIndexFunc).
+			Build()
 		ctx, cancel = context.WithCancel(context.Background())
 
 		reconciler = &ClusterReconciler{
 			Client: fakeClientSet,
 		}
+
+		instanceName = "test-instance"
 
 		cluster = &apiv1.Cluster{
 			ObjectMeta: metav1.ObjectMeta{
@@ -182,22 +191,39 @@ var _ = Describe("cluster scale pod and job deletion logic", func() {
 				Namespace: "default",
 			},
 		}
-
-		instanceName = "test-instance"
+		cluster.TypeMeta = metav1.TypeMeta{
+			Kind:       apiv1.ClusterKind,
+			APIVersion: apiv1.SchemeGroupVersion.String(),
+		}
 	})
 
 	AfterEach(func() {
 		cancel()
 	})
 
+	It("creates the cluster", func(ctx SpecContext) {
+		err := fakeClientSet.Create(ctx, cluster)
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("should delete all the jobs", func(ctx SpecContext) {
-		for _, jobName := range specs.GetPossibleJobNames(instanceName) {
+		jobNames := []string{
+			cluster.Name + "-initdb",
+			cluster.Name + "-pgbasebackup",
+		}
+		for _, jobName := range jobNames {
 			job := &batchv1.Job{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      jobName,
 					Namespace: cluster.Namespace,
+					Labels: map[string]string{
+						utils.InstanceNameLabelName: instanceName,
+						utils.ClusterLabelName:      cluster.Name,
+						utils.JobRoleLabelName:      "test",
+					},
 				},
 			}
+			cluster.SetInheritedDataAndOwnership(&job.ObjectMeta)
 			err := fakeClientSet.Create(ctx, job)
 			Expect(err).NotTo(HaveOccurred())
 		}
@@ -205,7 +231,7 @@ var _ = Describe("cluster scale pod and job deletion logic", func() {
 		err := reconciler.ensureInstanceJobAreDeleted(ctx, cluster, instanceName)
 		Expect(err).NotTo(HaveOccurred())
 
-		for _, jobName := range specs.GetPossibleJobNames(instanceName) {
+		for _, jobName := range jobNames {
 			var expectedJob batchv1.Job
 			err = fakeClientSet.Get(context.Background(),
 				types.NamespacedName{Name: jobName, Namespace: cluster.Namespace},

@@ -1,4 +1,5 @@
 # Resource management
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 In a typical Kubernetes cluster, pods run with unlimited resources. By default,
 they might be allowed to use as much CPU and RAM as needed.

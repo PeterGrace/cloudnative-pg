@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package hibernation
@@ -79,9 +82,12 @@ func reconcileDeletePods(
 		podToBeDeleted = &instances[0]
 	}
 
-	// The Pod list is sorted and the primary instance
+	// The Pod list is sorted, and the primary instance
 	// will always be the first one, if present
 	contextLogger.Info("Deleting Pod as requested by the hibernation procedure", "podName", podToBeDeleted.Name)
-	deletionResult := c.Delete(ctx, podToBeDeleted)
-	return &ctrl.Result{RequeueAfter: 5 * time.Second}, deletionResult
+	if err := c.Delete(ctx, podToBeDeleted); err != nil {
+		return nil, err
+	}
+
+	return &ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }

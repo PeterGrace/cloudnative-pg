@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package e2e
@@ -69,13 +72,6 @@ var _ = Describe("Replication Slot", Label(tests.LabelReplication), func() {
 				return cluster.Spec.ReplicationSlots.HighAvailability.GetEnabled(), nil
 			}, 10, 2).Should(BeTrue())
 		})
-
-		if env.PostgresVersion == 11 {
-			// We need to take into account the fact that on PostgreSQL 11
-			// it is required to rolling restart the cluster to
-			// enable or disable the feature once the cluster is created.
-			AssertClusterRollingRestart(namespace, clusterName)
-		}
 
 		By("checking Primary HA slots exist and are active", func() {
 			primaryPod, err := clusterutils.GetPrimary(env.Ctx, env.Client, namespace, clusterName)
@@ -163,13 +159,6 @@ var _ = Describe("Replication Slot", Label(tests.LabelReplication), func() {
 				return cluster.Spec.ReplicationSlots.GetEnabled(), nil
 			}, 10, 2).Should(BeFalse())
 		})
-
-		if env.PostgresVersion == 11 {
-			// We need to take into account the fact that on PostgreSQL 11
-			// it is required to rolling restart the cluster to
-			// enable or disable the feature once the cluster is created.
-			AssertClusterRollingRestart(namespace, clusterName)
-		}
 
 		By("verifying slots have been removed from the cluster's pods", func() {
 			pods, err := clusterutils.ListPods(env.Ctx, env.Client, namespace, clusterName)

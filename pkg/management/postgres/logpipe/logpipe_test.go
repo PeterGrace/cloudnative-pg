@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package logpipe
@@ -40,22 +43,6 @@ var _ = Describe("CSV file reader", func() {
 	When("given CSV logs from logging_collector", func() {
 		It("can read multiple CSV lines", func(ctx SpecContext) {
 			f, err := os.Open("testdata/two_lines.csv")
-			defer func() {
-				_ = f.Close()
-			}()
-			Expect(err).ToNot(HaveOccurred())
-
-			spy := SpyRecordWriter{}
-			p := LogPipe{
-				record:          &LoggingRecord{},
-				fieldsValidator: LogFieldValidator,
-			}
-			Expect(p.streamLogFromCSVFile(ctx, f, &spy)).To(Succeed())
-			Expect(spy.records).To(HaveLen(2))
-		})
-
-		It("can read multiple CSV lines on PostgreSQL version <= 12", func(ctx SpecContext) {
-			f, err := os.Open("testdata/two_lines_12.csv")
 			defer func() {
 				_ = f.Close()
 			}()

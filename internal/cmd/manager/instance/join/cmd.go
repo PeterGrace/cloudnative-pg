@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package join implements the "instance join" subcommand of the operator
@@ -26,12 +29,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
-	"github.com/cloudnative-pg/cloudnative-pg/internal/management/controller"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/istio"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/linkerd"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/webserver/metricserver"
+	instancecertificate "github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/instance/certificate"
 )
 
 // NewCmd creates the new "join" command
@@ -105,14 +107,9 @@ func joinSubCommand(ctx context.Context, instance *postgres.Instance, info postg
 		return err
 	}
 
-	// Create a fake reconciler just to download the secrets and
-	// the cluster definition
-	metricExporter := metricserver.NewExporter(instance)
-	reconciler := controller.NewInstanceReconciler(instance, client, metricExporter)
-
 	// Download the cluster definition from the API server
 	var cluster apiv1.Cluster
-	if err := reconciler.GetClient().Get(ctx,
+	if err := client.Get(ctx,
 		ctrl.ObjectKey{Namespace: instance.GetNamespaceName(), Name: instance.GetClusterName()},
 		&cluster,
 	); err != nil {
@@ -120,16 +117,10 @@ func joinSubCommand(ctx context.Context, instance *postgres.Instance, info postg
 		return err
 	}
 
-	// Since we're directly using the reconciler here, we cannot
-	// tell if the secrets were correctly downloaded or not.
-	// If they were the following "pg_basebackup" command will work, if
-	// they don't "pg_basebackup" with fail, complaining that the
-	// cryptographic material is not available.
-	// So it doesn't make a real difference.
-	//
-	// Besides this, we should improve this situation to have
-	// a real error handling.
-	reconciler.RefreshSecrets(ctx, &cluster)
+	if _, err := instancecertificate.NewReconciler(client, instance).RefreshSecrets(ctx, &cluster); err != nil {
+		contextLogger.Error(err, "Error while refreshing secrets")
+		return err
+	}
 
 	// Run "pg_basebackup" to download the data directory from the primary
 	if err := info.Join(ctx, &cluster); err != nil {

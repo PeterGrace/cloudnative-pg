@@ -1,4 +1,5 @@
 # Security
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 This section contains information about security for CloudNativePG,
 that are analyzed at 3 different layers: Code, Container and Cluster.

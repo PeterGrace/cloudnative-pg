@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -193,7 +196,6 @@ type ImageCatalogRef struct {
 	// +kubebuilder:validation:XValidation:rule="self.kind == 'ImageCatalog' || self.kind == 'ClusterImageCatalog'",message="Only image catalogs are supported"
 	// +kubebuilder:validation:XValidation:rule="self.apiGroup == 'postgresql.cnpg.io'",message="Only image catalogs are supported"
 	corev1.TypedLocalObjectReference `json:",inline"`
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="Major is immutable"
 	// The major version of PostgreSQL we want to use from the ImageCatalog
 	Major int `json:"major"`
 }
@@ -584,7 +586,10 @@ const (
 	// PhaseUpgrade upgrade in process
 	PhaseUpgrade = "Upgrading cluster"
 
-	// PhaseUpgradeDelayed is set when a cluster need to be upgraded
+	// PhaseMajorUpgrade major version upgrade in process
+	PhaseMajorUpgrade = "Upgrading Postgres major version"
+
+	// PhaseUpgradeDelayed is set when a cluster needs to be upgraded,
 	// but the operation is being delayed by the operator configuration
 	PhaseUpgradeDelayed = "Cluster upgrade delayed"
 
@@ -931,13 +936,14 @@ type ClusterStatus struct {
 	// +optional
 	OnlineUpdateEnabled bool `json:"onlineUpdateEnabled,omitempty"`
 
-	// AzurePVCUpdateEnabled shows if the PVC online upgrade is enabled for this cluster
-	// +optional
-	AzurePVCUpdateEnabled bool `json:"azurePVCUpdateEnabled,omitempty"`
-
 	// Image contains the image name used by the pods
 	// +optional
 	Image string `json:"image,omitempty"`
+
+	// MajorVersionUpgradeFromImage contains the image that was
+	// running before the major version upgrade started.
+	// +optional
+	MajorVersionUpgradeFromImage *string `json:"majorVersionUpgradeFromImage,omitempty"`
 
 	// PluginStatus is the status of the loaded plugins
 	// +optional

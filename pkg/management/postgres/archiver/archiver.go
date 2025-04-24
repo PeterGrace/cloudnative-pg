@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package archiver
@@ -34,7 +37,6 @@ import (
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	pluginClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/repository"
-	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/cache"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/constants"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/webserver/client/local"
@@ -178,11 +180,6 @@ func internalRun(
 		return fmt.Errorf("failed to get envs: %w", err)
 	}
 
-	maxParallel := 1
-	if cluster.Spec.Backup.BarmanObjectStore.Wal != nil {
-		maxParallel = cluster.Spec.Backup.BarmanObjectStore.Wal.MaxParallel
-	}
-
 	// Create the archiver
 	var walArchiver *barmanArchiver.WALArchiver
 	if walArchiver, err = barmanArchiver.New(
@@ -208,7 +205,7 @@ func internalRun(
 		return fmt.Errorf("while testing the existence of the WAL file in the spool directory: %w", err)
 	}
 	if isDeletedFromSpool {
-		contextLog.Info("Archived WAL file (parallel)",
+		contextLog.Info("WAL file already archived, skipping",
 			"walName", walName,
 			"currentPrimary", cluster.Status.CurrentPrimary,
 			"targetPrimary", cluster.Status.TargetPrimary)
@@ -219,7 +216,7 @@ func internalRun(
 	walFilesList := walUtils.GatherReadyWALFiles(
 		ctx,
 		walUtils.GatherReadyWALFilesConfig{
-			MaxResults: maxParallel,
+			MaxResults: getMaxResult(cluster),
 			SkipWALs:   []string{walName},
 			PgDataPath: pgData,
 		},
@@ -228,6 +225,7 @@ func internalRun(
 	// Ensure the requested WAL file is always the first one being
 	// archived
 	walFilesList.Ready = append([]string{walName}, walFilesList.Ready...)
+	contextLog.Debug("WAL files to archive", "walFilesListReady", walFilesList.Ready)
 
 	options, err := walArchiver.BarmanCloudWalArchiveOptions(
 		ctx, cluster.Spec.Backup.BarmanObjectStore, cluster.Name)
@@ -254,6 +252,13 @@ func internalRun(
 	return walStatus[0].Err
 }
 
+func getMaxResult(cluster *apiv1.Cluster) int {
+	if cluster.Spec.Backup.BarmanObjectStore.Wal != nil && cluster.Spec.Backup.BarmanObjectStore.Wal.MaxParallel > 0 {
+		return cluster.Spec.Backup.BarmanObjectStore.Wal.MaxParallel - 1
+	}
+	return 0
+}
+
 // archiveWALViaPlugins requests every capable plugin to archive the passed
 // WAL file, and returns an error if a configured plugin fails to do so.
 // It will not return an error if there's no plugin capable of WAL archiving
@@ -271,32 +276,21 @@ func archiveWALViaPlugins(
 	}
 
 	plugins := repository.New()
-	availablePluginNames, err := plugins.RegisterUnixSocketPluginsInPath(configuration.Current.PluginSocketDir)
-	if err != nil {
-		contextLogger.Error(err, "Error while loading local plugins")
-	}
 	defer plugins.Close()
 
-	availablePluginNamesSet := stringset.From(availablePluginNames)
-	enabledPluginNamesSet := stringset.From(
-		apiv1.GetPluginConfigurationEnabledPluginNames(cluster.Spec.Plugins))
-	availableAndEnabled := stringset.From(availablePluginNamesSet.Intersect(enabledPluginNamesSet).ToList())
+	enabledPluginNamesSet := stringset.From(apiv1.GetPluginConfigurationEnabledPluginNames(cluster.Spec.Plugins))
 
-	enabledArchiverPluginName := cluster.GetEnabledWALArchivePluginName()
-	if enabledArchiverPluginName != "" && !availableAndEnabled.Has(enabledArchiverPluginName) {
-		return fmt.Errorf("wal archive plugin is not available: %s", enabledArchiverPluginName)
-	}
-
-	client, err := pluginClient.WithPlugins(
-		ctx,
-		plugins,
-		availableAndEnabled.ToList()...,
-	)
+	client, err := pluginClient.NewClient(ctx, enabledPluginNamesSet)
 	if err != nil {
 		contextLogger.Error(err, "Error while loading required plugins")
 		return err
 	}
 	defer client.Close(ctx)
+
+	enabledArchiverPluginName := cluster.GetEnabledWALArchivePluginName()
+	if enabledArchiverPluginName != "" && !client.HasPlugin(enabledArchiverPluginName) {
+		return fmt.Errorf("wal archive plugin is not available: %s", enabledArchiverPluginName)
+	}
 
 	return client.ArchiveWAL(ctx, cluster, walName)
 }

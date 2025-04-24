@@ -1,17 +1,20 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
 
-	http://www.apache.org/licenses/LICENSE-2.0
+    http://www.apache.org/licenses/LICENSE-2.0
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -20,7 +23,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cloudnative-pg/machinery/pkg/image/reference"
 	"github.com/cloudnative-pg/machinery/pkg/log"
+	"github.com/cloudnative-pg/machinery/pkg/postgres/version"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -31,32 +36,98 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources/status"
 )
 
-// reconcileImage sets the image inside the status, to be used by the following
-// functions of the reconciler loop
+// reconcileImage processes the image request, executes it, and stores
+// the result in the .status.image field. If the user requested a
+// major version upgrade, the current image is saved in the
+// .status.majorVersionUpgradeFromImage field. This allows for
+// reverting the upgrade if it doesn't complete successfully.
 func (r *ClusterReconciler) reconcileImage(ctx context.Context, cluster *apiv1.Cluster) (*ctrl.Result, error) {
 	contextLogger := log.FromContext(ctx)
 
-	oldCluster := cluster.DeepCopy()
-
-	// If ImageName is defined and different from the current image in the status, we update the status
-	if cluster.Spec.ImageName != "" && cluster.Status.Image != cluster.Spec.ImageName {
-		cluster.Status.Image = cluster.Spec.ImageName
-		if err := r.Status().Patch(ctx, cluster, client.MergeFrom(oldCluster)); err != nil {
-			contextLogger.Error(
-				err,
-				"While patching cluster status to set the image name from the cluster Spec",
-				"imageName", cluster.Status.Image,
-			)
-			return nil, err
-		}
-		return nil, nil
+	image, err := r.getConfiguredImage(ctx, cluster)
+	if err != nil {
+		return &ctrl.Result{}, r.RegisterPhase(ctx, cluster, apiv1.PhaseImageCatalogError, err.Error())
 	}
 
-	// If ImageName was defined, we rely on what the user requested
+	currentDataImage := getCurrentPgDataImage(&cluster.Status)
+
+	// Case 1: the cluster is being initialized and there is still no
+	// running image. In this case, we should simply apply the image selected by the user.
+	if currentDataImage == "" {
+		return nil, status.PatchWithOptimisticLock(
+			ctx,
+			r.Client,
+			cluster,
+			status.SetImage(image),
+			status.SetMajorVersionUpgradeFromImage(nil),
+		)
+	}
+
+	// Case 2: there's a running image. The code checks if the user selected
+	// an image of the same major version or if a change in the major
+	// version has been requested.
+	currentVersion, err := version.FromTag(reference.New(currentDataImage).Tag)
+	if err != nil {
+		contextLogger.Error(err, "While parsing current major versions")
+		return nil, err
+	}
+
+	requestedVersion, err := version.FromTag(reference.New(image).Tag)
+	if err != nil {
+		contextLogger.Error(err, "While parsing requested major versions")
+		return nil, err
+	}
+
+	var majorVersionUpgradeFromImage *string
+	switch {
+	case currentVersion.Major() < requestedVersion.Major():
+		// The current major version is older than the requested one
+		majorVersionUpgradeFromImage = &currentDataImage
+	case currentVersion.Major() == requestedVersion.Major():
+		// The major versions are the same, cancel the update
+		majorVersionUpgradeFromImage = nil
+	default:
+		contextLogger.Info(
+			"Cannot downgrade the PostgreSQL major version. Forcing the current image.",
+			"currentImage", currentDataImage,
+			"requestedImage", image)
+		image = currentDataImage
+	}
+
+	return nil, status.PatchWithOptimisticLock(
+		ctx,
+		r.Client,
+		cluster,
+		status.SetImage(image),
+		status.SetMajorVersionUpgradeFromImage(majorVersionUpgradeFromImage),
+	)
+}
+
+// getCurrentPgDataImage returns Postgres image that was able to run the cluster
+// PGDATA correctly last time.
+// This is important in the context of major upgrade because it contains the
+// image with the "old" major version even when there are no Pods available.
+func getCurrentPgDataImage(status *apiv1.ClusterStatus) string {
+	if status.MajorVersionUpgradeFromImage != nil {
+		return *status.MajorVersionUpgradeFromImage
+	}
+
+	return status.Image
+}
+
+func (r *ClusterReconciler) getConfiguredImage(ctx context.Context, cluster *apiv1.Cluster) (string, error) {
+	contextLogger := log.FromContext(ctx)
+
+	// If ImageName is defined and different from the current image in the status, we update the status
+	if cluster.Spec.ImageName != "" {
+		return cluster.Spec.ImageName, nil
+	}
+
 	if cluster.Spec.ImageCatalogRef == nil {
-		return nil, nil
+		return "", fmt.Errorf("ImageName is not defined and no catalog is referenced")
 	}
 
 	contextLogger = contextLogger.WithValues("catalogRef", cluster.Spec.ImageCatalogRef)
@@ -71,15 +142,13 @@ func (r *ClusterReconciler) reconcileImage(ctx context.Context, cluster *apiv1.C
 		catalog = &apiv1.ImageCatalog{}
 	default:
 		contextLogger.Info("Unknown catalog kind")
-		return &ctrl.Result{}, r.RegisterPhase(ctx, cluster, apiv1.PhaseImageCatalogError,
-			"Invalid image catalog type")
+		return "", fmt.Errorf("invalid image catalog type")
 	}
 
 	apiGroup := cluster.Spec.ImageCatalogRef.APIGroup
 	if apiGroup == nil || *apiGroup != apiv1.SchemeGroupVersion.Group {
 		contextLogger.Info("Unknown catalog group")
-		return &ctrl.Result{}, r.RegisterPhase(ctx, cluster, apiv1.PhaseImageCatalogError,
-			"Invalid image catalog group")
+		return "", fmt.Errorf("invalid image catalog group")
 	}
 
 	// Get the referenced catalog
@@ -89,10 +158,11 @@ func (r *ClusterReconciler) reconcileImage(ctx context.Context, cluster *apiv1.C
 		if apierrs.IsNotFound(err) {
 			r.Recorder.Eventf(cluster, "Warning", "DiscoverImage", "Cannot get %v/%v",
 				catalogKind, catalogName)
-			return &ctrl.Result{}, nil
+			contextLogger.Info("catalog not found", "catalogKind", catalogKind, "catalogName", catalogName)
+			return "", fmt.Errorf("catalog %s/%s not found", catalogKind, catalogName)
 		}
 
-		return nil, err
+		return "", err
 	}
 
 	// Catalog found, we try to find the image for the major version
@@ -108,25 +178,10 @@ func (r *ClusterReconciler) reconcileImage(ctx context.Context, cluster *apiv1.C
 			catalogName)
 		contextLogger.Info("cannot find requested major version",
 			"requestedMajorVersion", requestedMajorVersion)
-		return &ctrl.Result{}, r.RegisterPhase(ctx, cluster, apiv1.PhaseImageCatalogError,
-			"Selected major version is not available in the catalog")
+		return "", fmt.Errorf("selected major version is not available in the catalog")
 	}
 
-	// If the image is different, we set it into the cluster status
-	if cluster.Status.Image != catalogImage {
-		cluster.Status.Image = catalogImage
-		patch := client.MergeFrom(oldCluster)
-		if err := r.Status().Patch(ctx, cluster, patch); err != nil {
-			patchBytes, _ := patch.Data(cluster)
-			contextLogger.Error(
-				err,
-				"While patching cluster status to set the image name from the catalog",
-				"patch", string(patchBytes))
-			return nil, err
-		}
-	}
-
-	return nil, nil
+	return catalogImage, nil
 }
 
 func (r *ClusterReconciler) getClustersForImageCatalogsToClustersMapper(
@@ -139,7 +194,7 @@ func (r *ClusterReconciler) getClustersForImageCatalogsToClustersMapper(
 	}
 
 	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(".spec.imageCatalog.name", object.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(imageCatalogKey, object.GetName()),
 		Namespace:     object.GetNamespace(),
 	}
 
@@ -186,7 +241,7 @@ func (r *ClusterReconciler) getClustersForClusterImageCatalogsToClustersMapper(
 	}
 
 	listOps := &client.ListOptions{
-		FieldSelector: fields.OneTermEqualSelector(".spec.imageCatalog.name", object.GetName()),
+		FieldSelector: fields.OneTermEqualSelector(imageCatalogKey, object.GetName()),
 	}
 
 	err = r.List(ctx, &clusters, listOps)

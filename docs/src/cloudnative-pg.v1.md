@@ -1,4 +1,5 @@
 # API Reference
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 <p>Package v1 contains API Schema definitions for the postgresql v1 API group</p>
 
@@ -2250,18 +2251,19 @@ This field is reported when <code>.spec.failoverDelay</code> is populated or dur
    <p>OnlineUpdateEnabled shows if the online upgrade is enabled inside the cluster</p>
 </td>
 </tr>
-<tr><td><code>azurePVCUpdateEnabled</code><br/>
-<i>bool</i>
-</td>
-<td>
-   <p>AzurePVCUpdateEnabled shows if the PVC online upgrade is enabled for this cluster</p>
-</td>
-</tr>
 <tr><td><code>image</code><br/>
 <i>string</i>
 </td>
 <td>
    <p>Image contains the image name used by the pods</p>
+</td>
+</tr>
+<tr><td><code>majorVersionUpgradeFromImage</code><br/>
+<i>string</i>
+</td>
+<td>
+   <p>MajorVersionUpgradeFromImage contains the image that was
+running before the major version upgrade started.</p>
 </td>
 </tr>
 <tr><td><code>pluginStatus</code><br/>

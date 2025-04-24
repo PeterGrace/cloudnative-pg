@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package operatorclient
@@ -26,7 +29,7 @@ import (
 
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin"
 	cnpgiClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
+	contextutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils/context"
 )
 
 type extendedClient struct {
@@ -47,14 +50,14 @@ func (e *extendedClient) invokePlugin(
 ) (client.Object, error) {
 	contextLogger := log.FromContext(ctx).WithName("invokePlugin")
 
-	cluster, ok := ctx.Value(utils.ContextKeyCluster).(client.Object)
+	cluster, ok := ctx.Value(contextutils.ContextKeyCluster).(client.Object)
 	if !ok || cluster == nil {
 		contextLogger.Trace("skipping invokePlugin, cannot find the cluster inside the context")
 		return obj, nil
 	}
 
-	pluginClient, ok := ctx.Value(utils.PluginClientKey).(cnpgiClient.Client)
-	if !ok || pluginClient == nil {
+	pluginClient := cnpgiClient.GetPluginClientFromContext(ctx)
+	if pluginClient == nil {
 		contextLogger.Trace("skipping invokePlugin, cannot find the plugin client inside the context")
 		return obj, nil
 	}

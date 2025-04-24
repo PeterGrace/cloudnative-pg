@@ -1,4 +1,5 @@
 # Declarative hibernation
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 CloudNativePG is designed to keep PostgreSQL clusters up, running and available
 anytime.

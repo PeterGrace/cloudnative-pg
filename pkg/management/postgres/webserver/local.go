@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package webserver
@@ -36,7 +39,7 @@ import (
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/url"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources/status"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
+	contextutils "github.com/cloudnative-pg/cloudnative-pg/pkg/utils/context"
 )
 
 type localWebserverEndpoints struct {
@@ -236,7 +239,7 @@ func (ws *localWebserverEndpoints) startPluginBackup(
 	backup *apiv1.Backup,
 ) {
 	// TODO: timeout should be configurable by the user
-	ctx = context.WithValue(ctx, utils.GRPCTimeoutKey, 100*time.Minute)
+	ctx = context.WithValue(ctx, contextutils.GRPCTimeoutKey, 100*time.Minute)
 	NewPluginBackupCommand(cluster, backup, ws.typedClient, ws.eventRecorder).Start(ctx)
 }
 

@@ -1,4 +1,5 @@
 # Tablespaces
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 A tablespace is a robust and widely embraced feature in database
 management systems. It offers a powerful means to enhance the vertical

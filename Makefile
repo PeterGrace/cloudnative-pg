@@ -1,5 +1,6 @@
 #
-# Copyright The CloudNativePG Contributors
+# Copyright © contributors to CloudNativePG, established as
+# CloudNativePG a Series of LF Projects, LLC.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
 #
 
 # Image URL to use all building/pushing image targets
@@ -29,6 +32,13 @@ CATALOG_IMG ?= ${CONTROLLER_IMG}-catalog
 BUNDLE_IMG ?= ${CONTROLLER_IMG}-bundle
 INDEX_IMG ?= ${CONTROLLER_IMG}-index
 
+# Define CONTROLLER_IMG_WITH_DIGEST by appending CONTROLLER_IMG_SHA to CONTROLLER_IMG with '@' if CONTROLLER_IMG_SHA is set
+ifneq ($(CONTROLLER_IMG_DIGEST),)
+CONTROLLER_IMG_WITH_DIGEST := $(CONTROLLER_IMG)@$(CONTROLLER_IMG_DIGEST)
+else
+CONTROLLER_IMG_WITH_DIGEST := $(CONTROLLER_IMG)
+endif
+
 COMMIT := $(shell git rev-parse --short HEAD || echo unknown)
 DATE := $(shell git log -1 --pretty=format:'%ad' --date short)
 VERSION := $(shell git describe --tags --match 'v*' | sed -e 's/^v//; s/-g[0-9a-f]\+$$//; s/-\([0-9]\+\)$$/-dev\1/')
@@ -42,15 +52,15 @@ LOCALBIN ?= $(shell pwd)/bin
 BUILD_IMAGE ?= true
 POSTGRES_IMAGE_NAME ?= $(shell grep 'DefaultImageName.*=' "pkg/versions/versions.go" | cut -f 2 -d \")
 KUSTOMIZE_VERSION ?= v5.6.0
-CONTROLLER_TOOLS_VERSION ?= v0.17.2
+CONTROLLER_TOOLS_VERSION ?= v0.17.3
 GENREF_VERSION ?= 015aaac611407c4fe591bc8700d2c67b7521efca
-GORELEASER_VERSION ?= v2.7.0
-SPELLCHECK_VERSION ?= 0.47.0
+GORELEASER_VERSION ?= v2.8.2
+SPELLCHECK_VERSION ?= 0.48.0
 WOKE_VERSION ?= 0.19.0
-OPERATOR_SDK_VERSION ?= v1.39.1
+OPERATOR_SDK_VERSION ?= v1.39.2
 OPM_VERSION ?= v1.51.0
-PREFLIGHT_VERSION ?= 1.12.1
-OPENSHIFT_VERSIONS ?= v4.12-v4.18
+PREFLIGHT_VERSION ?= 1.13.0
+OPENSHIFT_VERSIONS ?= v4.12-v4.19
 ARCH ?= amd64
 
 export CONTROLLER_IMG
@@ -212,7 +222,7 @@ generate-manifest: manifests kustomize ## Generate manifest used for deployment.
 		cd $$CONFIG_TMP_DIR/default ;\
 		$(KUSTOMIZE) edit add patch --path manager_image_pull_secret.yaml ;\
 		cd $$CONFIG_TMP_DIR/manager ;\
-		$(KUSTOMIZE) edit set image controller="${CONTROLLER_IMG}" ;\
+		$(KUSTOMIZE) edit set image controller="${CONTROLLER_IMG_WITH_DIGEST}" ;\
 		$(KUSTOMIZE) edit add patch --path env_override.yaml ;\
 		$(KUSTOMIZE) edit add configmap controller-manager-env \
 			--from-literal="POSTGRES_IMAGE_NAME=${POSTGRES_IMAGE_NAME}" \
@@ -227,10 +237,6 @@ manifests: controller-gen ## Generate manifests e.g. CRD, RBAC etc.
 
 generate: controller-gen ## Generate code.
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
-
-deploy-locally: kind-cluster ## Build and deploy operator in local cluster
-	set -e ;\
-	hack/setup-cluster.sh -n1 load deploy
 
 olm-scorecard: operator-sdk ## Run the Scorecard test from operator-sdk
 	$(OPERATOR_SDK) scorecard ${BUNDLE_IMG} --wait-time 60s --verbose
@@ -349,14 +355,6 @@ echo "Downloading $(2)" ;\
 GOBIN=$(PROJECT_DIR)/bin go install $(2) ;\
 }
 endef
-
-kind-cluster: ## Create KinD cluster to run operator locally
-	set -e ;\
-	hack/setup-cluster.sh -n1 create
-
-kind-cluster-destroy: ## Destroy KinD cluster created using kind-cluster command
-	set -e ;\
-	hack/setup-cluster.sh -n1 destroy
 
 .PHONY: operator-sdk
 OPERATOR_SDK = $(LOCALBIN)/operator-sdk

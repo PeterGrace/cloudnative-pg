@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -1113,7 +1116,7 @@ func (r *ClusterReconciler) createPrimaryInstance(
 		recoverySnapshot,
 		nodeSerial,
 	); err != nil {
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{}, fmt.Errorf("cannot create primary instance PVCs: %w", err)
 	}
 
 	// We are bootstrapping a cluster and in need to create the first node
@@ -1292,7 +1295,7 @@ func (r *ClusterReconciler) joinReplicaInstance(
 		storageSource,
 		nodeSerial,
 	); err != nil {
-		return ctrl.Result{RequeueAfter: time.Minute}, err
+		return ctrl.Result{}, fmt.Errorf("cannot create replica instance PVCs: %w", err)
 	}
 
 	return ctrl.Result{RequeueAfter: 30 * time.Second}, ErrNextLoop
@@ -1307,7 +1310,7 @@ func (r *ClusterReconciler) ensureInstancesAreCreated(
 ) (ctrl.Result, error) {
 	contextLogger := log.FromContext(ctx)
 
-	instanceToCreate, err := findInstancePodToCreate(cluster, instancesStatus, resources.pvcs.Items)
+	instanceToCreate, err := findInstancePodToCreate(ctx, cluster, instancesStatus, resources.pvcs.Items)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -1341,19 +1344,6 @@ func (r *ClusterReconciler) ensureInstancesAreCreated(
 				"instance", instanceToCreate.Name,
 			)
 			return ctrl.Result{RequeueAfter: 1 * time.Second}, ErrNextLoop
-		}
-
-		if configuration.Current.EnableAzurePVCUpdates {
-			for _, resizingPVC := range cluster.Status.ResizingPVC {
-				// if the pvc is in resizing state we requeue and wait
-				if resizingPVC == instancePVC.Name {
-					contextLogger.Info(
-						"PVC is in resizing status, retrying in 5 seconds",
-						"instance", instanceToCreate.Name,
-					)
-					return ctrl.Result{RequeueAfter: 5 * time.Second}, ErrNextLoop
-				}
-			}
 		}
 	}
 
@@ -1394,6 +1384,7 @@ func (r *ClusterReconciler) ensureInstancesAreCreated(
 
 // we elect a current instance that doesn't exist for creation
 func findInstancePodToCreate(
+	ctx context.Context,
 	cluster *apiv1.Cluster,
 	instancesStatus postgres.PostgresqlStatusList,
 	pvcs []corev1.PersistentVolumeClaim,
@@ -1440,7 +1431,7 @@ func findInstancePodToCreate(
 		if err != nil {
 			return nil, err
 		}
-		return specs.PodWithExistingStorage(*cluster, serial)
+		return specs.NewInstance(ctx, *cluster, serial, true)
 	}
 
 	return nil, nil

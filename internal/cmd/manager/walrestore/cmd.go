@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package walrestore implement the walrestore command
@@ -35,7 +38,6 @@ import (
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	pluginClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/repository"
-	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/management/cache"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/webserver/client/local"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
@@ -253,13 +255,7 @@ func restoreWALViaPlugins(
 	contextLogger := log.FromContext(ctx)
 
 	plugins := repository.New()
-	availablePluginNames, err := plugins.RegisterUnixSocketPluginsInPath(configuration.Current.PluginSocketDir)
-	if err != nil {
-		contextLogger.Error(err, "Error while loading local plugins")
-	}
 	defer plugins.Close()
-
-	availablePluginNamesSet := stringset.From(availablePluginNames)
 
 	enabledPluginNames := apiv1.GetPluginConfigurationEnabledPluginNames(cluster.Spec.Plugins)
 	enabledPluginNames = append(
@@ -267,12 +263,7 @@ func restoreWALViaPlugins(
 		apiv1.GetExternalClustersEnabledPluginNames(cluster.Spec.ExternalClusters)...,
 	)
 	enabledPluginNamesSet := stringset.From(enabledPluginNames)
-
-	client, err := pluginClient.WithPlugins(
-		ctx,
-		plugins,
-		availablePluginNamesSet.Intersect(enabledPluginNamesSet).ToList()...,
-	)
+	client, err := pluginClient.NewClient(ctx, enabledPluginNamesSet)
 	if err != nil {
 		contextLogger.Error(err, "Error while loading required plugins")
 		return false, err

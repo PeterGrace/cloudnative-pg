@@ -1,6 +1,6 @@
 {{ define "packages" -}}
-
 # API Reference
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 {{ $grpname := "" -}}
 {{- range $idx, $val := .packages -}}

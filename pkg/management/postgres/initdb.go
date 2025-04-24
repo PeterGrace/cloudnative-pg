@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 // Package postgres contains the function about starting up,
@@ -503,7 +506,7 @@ func (info InitInfo) Bootstrap(ctx context.Context) error {
 
 	// In case of import bootstrap, we restore the standard configuration file content
 	if isImportBootstrap {
-		/// Write standard replication configuration
+		// Write standard replication configuration
 		if _, err = configurePostgresOverrideConfFile(info.PgData, primaryConnInfo, ""); err != nil {
 			return fmt.Errorf("while configuring Postgres for replication: %w", err)
 		}

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package specs
@@ -26,8 +29,6 @@ import (
 
 // ComparePodSpecs compares two pod specs, returns true iff they are equivalent, and
 // if they are not, points out the first discrepancy.
-// This function matches CreateClusterPodSpec, specifically it looks in more detail
-// and ignores reordering of volume mounts and containers
 func ComparePodSpecs(
 	currentPodSpec, targetPodSpec corev1.PodSpec,
 ) (bool, string) {
@@ -39,7 +40,21 @@ func ComparePodSpecs(
 			return compareContainers(currentPodSpec.Containers, targetPodSpec.Containers)
 		},
 		"init-containers": func() (bool, string) {
-			return compareContainers(currentPodSpec.InitContainers, targetPodSpec.InitContainers)
+			extractContainersForComparison := func(passedContainers []corev1.Container) []corev1.Container {
+				var containers []corev1.Container
+				for _, container := range passedContainers {
+					if container.Name == BootstrapControllerContainerName {
+						// ignore the bootstrap controller init container. We handle it inside checkPodSpecIsOutdated.
+						continue
+					}
+					containers = append(containers, container)
+				}
+				return containers
+			}
+			return compareContainers(
+				extractContainersForComparison(currentPodSpec.InitContainers),
+				extractContainersForComparison(targetPodSpec.InitContainers),
+			)
 		},
 	}
 

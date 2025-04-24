@@ -1,4 +1,5 @@
 # Replication
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 Physical replication is one of the strengths of PostgreSQL and one of the
 reasons why some of the largest organizations in the world have chosen it for
@@ -394,9 +395,9 @@ number of standbys are available.
     Make sure you have a clear understanding of what *ready/available* means
     for a replica and set your expectations accordingly. By default, a replica is
     considered ready when it has successfully connected to the source at least
-    once. However, CloudNativePG allows you to configure startup probes for
-    replicas. For more details, please refer to the
-    ["Advanced Startup Probe" section](instance_manager.md#advanced-startup-probe).
+    once. However, CloudNativePG allows you to configure startup and readiness
+    probes for replicas based on maximum lag. For more details, please refer to
+    the ["Postgres instance manager" section](instance_manager.md).
 
 This setting balances data safety with availability, enabling applications to
 continue writing during temporary standby unavailability—hence, it’s also known

@@ -1,4 +1,5 @@
 # Bootstrap
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 This section describes the options available to create a new
 PostgreSQL cluster and the design rationale behind them.

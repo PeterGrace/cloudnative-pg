@@ -161,6 +161,7 @@ ExtensionSpec
 ExtensionStatus
 ExternalCluster
 FQDN
+FQDNs
 Fei
 Filesystem
 Fluentd
@@ -209,16 +210,20 @@ Istio's
 JSON
 Jihyuk
 Jitendra
+Karpenter
 KinD
 Krew
 KubeCon
 Kubegres
+KubernetesClusterDomain
 Kumar
 LDAP
 LDAPBindAsAuth
 LDAPBindSearchAuth
 LDAPConfig
 LDAPScheme
+LF
+LLC
 LPV
 LSN
 LTS
@@ -518,6 +523,7 @@ YXBw
 YY
 YYYY
 Zalando
+Zstandard
 abd
 accessKeyId
 accessModes
@@ -910,6 +916,7 @@ kubebuilder
 kubectl
 kubelet
 kubernetes
+kubernetesClusterDomain
 labelColumnName
 labelColumnValue
 labelName
@@ -955,7 +962,9 @@ logLevel
 lookups
 lsn
 lt
+lz
 macOS
+majorVersionUpgradeFromImage
 malcolm
 mallocs
 managedRoleSecretVersion
@@ -1189,6 +1198,7 @@ robfig
 roleRef
 rollingupdatestatus
 rollout
+rollouts
 rpo
 rto
 runonserver
@@ -1414,5 +1424,7 @@ www
 xact
 xlog
 xml
+xz
 yaml
 yml
+zstd

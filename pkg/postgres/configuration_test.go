@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package postgres
@@ -78,19 +81,6 @@ var _ = Describe("PostgreSQL configuration creation", func() {
 		confFile, sha256 := CreatePostgresqlConfFile(&PgConfiguration{settings})
 		Expect(sha256).NotTo(BeEmpty())
 		Expect(confFile).To(ContainSubstring("log_destination = 'stderr'\nshared_buffers = '128KB'\n"))
-	})
-
-	When("version is 10", func() {
-		It("will use appropriate settings", func() {
-			info := ConfigurationInfo{
-				Settings:           CnpgConfigurationSettings,
-				Version:            version.New(10, 0),
-				UserSettings:       settings,
-				IncludingMandatory: true,
-			}
-			config := CreatePostgresqlConfiguration(info)
-			Expect(config.GetConfig("wal_keep_segments")).To(Equal("32"))
-		})
 	})
 
 	When("version is 13", func() {

@@ -1,4 +1,11 @@
 # Backup on object stores
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
+
+!!! Warning
+    With the deprecation of native Barman Cloud support in CloudNativePG in
+    favor of the Barman Cloud Plugin, this page—and the backup and recovery
+    documentation—may undergo changes before the official release of version
+    1.26.0.
 
 CloudNativePG natively supports **online/hot backup** of PostgreSQL
 clusters through continuous physical backup and WAL archiving on an object
@@ -93,7 +100,10 @@ algorithms via `barman-cloud-backup` (for backups) and
 
 * bzip2
 * gzip
+* lz4
 * snappy
+* xz
+* zstd
 
 The compression settings for backups and WALs are independent. See the
 [DataBackupConfiguration](https://pkg.go.dev/github.com/cloudnative-pg/barman-cloud/pkg/api#DataBackupConfiguration) and

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -19,7 +22,9 @@ package v1
 import (
 	"context"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	volumesnapshot "github.com/kubernetes-csi/external-snapshotter/client/v8/apis/volumesnapshot/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -93,6 +98,23 @@ func (backupStatus *BackupStatus) GetOnline() bool {
 	}
 
 	return *backupStatus.Online
+}
+
+// GetVolumeSnapshotDeadline returns the volume snapshot deadline in minutes.
+func (backup *Backup) GetVolumeSnapshotDeadline() time.Duration {
+	const defaultValue = 10
+
+	value := backup.Annotations[utils.BackupVolumeSnapshotDeadlineAnnotationName]
+	if value == "" {
+		return defaultValue * time.Minute
+	}
+
+	minutes, err := strconv.Atoi(value)
+	if err != nil {
+		return defaultValue * time.Minute
+	}
+
+	return time.Duration(minutes) * time.Minute
 }
 
 // IsCompletedVolumeSnapshot checks if a backup is completed using the volume snapshot method.

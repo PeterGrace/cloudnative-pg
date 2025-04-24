@@ -1,4 +1,5 @@
 # Connection pooling
+<!-- SPDX-License-Identifier: CC-BY-4.0 -->
 
 CloudNativePG provides native support for connection pooling with
 [PgBouncer](https://www.pgbouncer.org/), one of the most popular open source

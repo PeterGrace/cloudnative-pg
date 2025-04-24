@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -59,7 +62,7 @@ var clusterLog = log.WithName("cluster-resource").WithValues("version", "v1")
 // SetupClusterWebhookWithManager registers the webhook for Cluster in the manager.
 func SetupClusterWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).For(&apiv1.Cluster{}).
-		WithValidator(&ClusterCustomValidator{}).
+		WithValidator(newBypassableValidator(&ClusterCustomValidator{})).
 		WithDefaulter(&ClusterCustomDefaulter{}).
 		Complete()
 }
@@ -104,7 +107,8 @@ func (v *ClusterCustomValidator) ValidateCreate(_ context.Context, obj runtime.O
 	if !ok {
 		return nil, fmt.Errorf("expected a Cluster object but got %T", obj)
 	}
-	clusterLog.Info("Validation for Cluster upon creation", "name", cluster.GetName(), "namespace", cluster.GetNamespace())
+	clusterLog.Info("Validation for Cluster upon creation", "name", cluster.GetName(), "namespace",
+		cluster.GetNamespace())
 
 	allErrs := v.validate(cluster)
 	allWarnings := v.getAdmissionWarnings(cluster)
@@ -133,7 +137,8 @@ func (v *ClusterCustomValidator) ValidateUpdate(
 		return nil, fmt.Errorf("expected a Cluster object for the oldObj but got %T", oldObj)
 	}
 
-	clusterLog.Info("Validation for Cluster upon update", "name", cluster.GetName(), "namespace", cluster.GetNamespace())
+	clusterLog.Info("Validation for Cluster upon update", "name", cluster.GetName(), "namespace",
+		cluster.GetNamespace())
 
 	// applying defaults before validating updates to set any new default
 	oldCluster.SetDefaults()
@@ -159,7 +164,8 @@ func (v *ClusterCustomValidator) ValidateDelete(_ context.Context, obj runtime.O
 	if !ok {
 		return nil, fmt.Errorf("expected a Cluster object but got %T", obj)
 	}
-	clusterLog.Info("Validation for Cluster upon deletion", "name", cluster.GetName(), "namespace", cluster.GetNamespace())
+	clusterLog.Info("Validation for Cluster upon deletion", "name", cluster.GetName(), "namespace",
+		cluster.GetNamespace())
 
 	// TODO(user): fill in your validation logic upon object deletion.
 
@@ -951,12 +957,12 @@ func (v *ClusterCustomValidator) validateConfiguration(r *apiv1.Cluster) field.E
 		// validateImageName function
 		return result
 	}
-	if pgVersion.Major() < 12 {
+	if pgVersion.Major() < 13 {
 		result = append(result,
 			field.Invalid(
 				field.NewPath("spec", "imageName"),
 				r.Spec.ImageName,
-				"Unsupported PostgreSQL version. Versions 12 or newer are supported"))
+				"Unsupported PostgreSQL version. Versions 13 or newer are supported"))
 	}
 	info := postgres.ConfigurationInfo{
 		Settings:               postgres.CnpgConfigurationSettings,
@@ -1228,22 +1234,26 @@ func (v *ClusterCustomValidator) validateImageChange(r, old *apiv1.Cluster) fiel
 	var result field.ErrorList
 	var newVersion, oldVersion version.Data
 	var err error
-	var newImagePath *field.Path
+	var fieldPath *field.Path
 	if r.Spec.ImageCatalogRef != nil {
-		newImagePath = field.NewPath("spec", "imageCatalogRef")
+		fieldPath = field.NewPath("spec", "imageCatalogRef", "major")
 	} else {
-		newImagePath = field.NewPath("spec", "imageName")
+		fieldPath = field.NewPath("spec", "imageName")
 	}
 
-	r.Status.Image = ""
-	newVersion, err = r.GetPostgresqlVersion()
+	newCluster := r.DeepCopy()
+	newCluster.Status.Image = ""
+	newVersion, err = newCluster.GetPostgresqlVersion()
 	if err != nil {
 		// The validation error will be already raised by the
 		// validateImageName function
 		return result
 	}
 
-	old.Status.Image = ""
+	old = old.DeepCopy()
+	if old.Status.MajorVersionUpgradeFromImage != nil {
+		old.Status.Image = *old.Status.MajorVersionUpgradeFromImage
+	}
 	oldVersion, err = old.GetPostgresqlVersion()
 	if err != nil {
 		// The validation error will be already raised by the
@@ -1251,18 +1261,27 @@ func (v *ClusterCustomValidator) validateImageChange(r, old *apiv1.Cluster) fiel
 		return result
 	}
 
-	status := version.IsUpgradePossible(oldVersion, newVersion)
-
-	if !status {
+	if oldVersion.Major() > newVersion.Major() {
 		result = append(
 			result,
 			field.Invalid(
-				newImagePath,
-				newVersion,
-				fmt.Sprintf("can't upgrade between majors %v and %v",
-					oldVersion, newVersion)))
+				fieldPath,
+				fmt.Sprintf("%v", newVersion.Major()),
+				fmt.Sprintf("can't downgrade from majors %v to %v",
+					oldVersion.Major(), newVersion.Major())))
 	}
 
+	// TODO: Upgrading to versions 14 and 15 would require carrying information around about the collation used.
+	//   See https://git.postgresql.org/gitweb/?p=postgresql.git;a=commitdiff;h=9637badd9.
+	//   This is not implemented yet, and users should not upgrade to old versions anyway, so we are blocking it.
+	if oldVersion.Major() < newVersion.Major() && newVersion.Major() < 16 {
+		result = append(
+			result,
+			field.Invalid(
+				fieldPath,
+				fmt.Sprintf("%v", newVersion.Major()),
+				"major upgrades are only supported to version 16 or higher"))
+	}
 	return result
 }
 
@@ -1528,7 +1547,7 @@ func (v *ClusterCustomValidator) validateWalStorageChange(r, old *apiv1.Cluster)
 			field.Invalid(
 				field.NewPath("spec", "walStorage"),
 				r.Spec.WalStorage,
-				"walStorage cannot be disabled once the cluster is created"),
+				"walStorage cannot be disabled once configured"),
 		}
 	}
 
@@ -1966,7 +1985,7 @@ func (v *ClusterCustomValidator) validateTolerations(r *apiv1.Cluster) field.Err
 	return allErrors
 }
 
-// validateTaintEffect is used from validateTollerations and is a verbatim copy of the code
+// validateTaintEffect is used from validateToleration and is a verbatim copy of the code
 // at https://github.com/kubernetes/kubernetes/blob/4d38d21/pkg/apis/core/validation/validation.go#L3087
 func validateTaintEffect(effect *corev1.TaintEffect, allowEmpty bool, fldPath *field.Path) field.ErrorList {
 	if !allowEmpty && len(*effect) == 0 {
@@ -2324,7 +2343,24 @@ func (v *ClusterCustomValidator) validatePgFailoverSlots(r *apiv1.Cluster) field
 }
 
 func (v *ClusterCustomValidator) getAdmissionWarnings(r *apiv1.Cluster) admission.Warnings {
-	return getMaintenanceWindowsAdmissionWarnings(r)
+	list := getMaintenanceWindowsAdmissionWarnings(r)
+	return append(list, getSharedBuffersWarnings(r)...)
+}
+
+func getSharedBuffersWarnings(r *apiv1.Cluster) admission.Warnings {
+	var result admission.Warnings
+
+	if v := r.Spec.PostgresConfiguration.Parameters["shared_buffers"]; v != "" {
+		if _, err := strconv.Atoi(v); err == nil {
+			result = append(
+				result,
+				fmt.Sprintf("`shared_buffers` value '%s' is missing a unit (e.g., MB, GB). "+
+					"While this is currently allowed, future releases will require an explicit unit. "+
+					"Please update your configuration to specify a valid unit, such as '%sMB'.", v, v),
+			)
+		}
+	}
+	return result
 }
 
 func getMaintenanceWindowsAdmissionWarnings(r *apiv1.Cluster) admission.Warnings {
@@ -2375,7 +2411,12 @@ func (v *ClusterCustomValidator) validatePodPatchAnnotation(r *apiv1.Cluster) fi
 		}
 	}
 
-	if _, err := specs.PodWithExistingStorage(*r, 1); err != nil {
+	if _, err := specs.NewInstance(
+		context.Background(),
+		*r,
+		1,
+		true,
+	); err != nil {
 		return field.ErrorList{
 			field.Invalid(
 				field.NewPath("metadata", "annotations", utils.PodPatchAnnotationName),

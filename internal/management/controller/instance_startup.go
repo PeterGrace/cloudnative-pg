@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -19,150 +22,20 @@ package controller
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 
 	"github.com/cloudnative-pg/machinery/pkg/fileutils"
 	"github.com/cloudnative-pg/machinery/pkg/log"
 	pgTime "github.com/cloudnative-pg/machinery/pkg/postgres/time"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/controller"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/archiver"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres/utils"
-	postgresSpec "github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
 )
-
-// refreshServerCertificateFiles gets the latest server certificates files from the
-// secrets, and may set the instance certificate if it was missing our outdated.
-// Returns true if configuration has been changed or the instance has been updated
-func (r *InstanceReconciler) refreshServerCertificateFiles(ctx context.Context, cluster *apiv1.Cluster) (bool, error) {
-	contextLogger := log.FromContext(ctx)
-
-	var secret corev1.Secret
-
-	err := retry.OnError(retry.DefaultBackoff, func(error) bool { return true },
-		func() error {
-			err := r.GetClient().Get(
-				ctx,
-				client.ObjectKey{Namespace: r.instance.GetNamespaceName(), Name: cluster.Status.Certificates.ServerTLSSecret},
-				&secret)
-			if err != nil {
-				contextLogger.Info("Error accessing server TLS Certificate. Retrying with exponential backoff.",
-					"secret", cluster.Status.Certificates.ServerTLSSecret)
-				return err
-			}
-			return nil
-		})
-	if err != nil {
-		return false, err
-	}
-
-	changed, err := r.refreshCertificateFilesFromSecret(
-		ctx,
-		&secret,
-		postgresSpec.ServerCertificateLocation,
-		postgresSpec.ServerKeyLocation)
-	if err != nil {
-		return changed, err
-	}
-
-	if r.instance.ServerCertificate == nil || changed {
-		return changed, r.refreshInstanceCertificateFromSecret(&secret)
-	}
-
-	return changed, nil
-}
-
-// refreshReplicationUserCertificate gets the latest replication certificates from the
-// secrets. Returns true if configuration has been changed
-func (r *InstanceReconciler) refreshReplicationUserCertificate(
-	ctx context.Context,
-	cluster *apiv1.Cluster,
-) (bool, error) {
-	var secret corev1.Secret
-	err := r.GetClient().Get(
-		ctx,
-		client.ObjectKey{Namespace: r.instance.GetNamespaceName(), Name: cluster.Status.Certificates.ReplicationTLSSecret},
-		&secret)
-	if err != nil {
-		return false, err
-	}
-
-	return r.refreshCertificateFilesFromSecret(
-		ctx,
-		&secret,
-		postgresSpec.StreamingReplicaCertificateLocation,
-		postgresSpec.StreamingReplicaKeyLocation)
-}
-
-// refreshClientCA gets the latest client CA certificates from the secrets.
-// It returns true if configuration has been changed
-func (r *InstanceReconciler) refreshClientCA(ctx context.Context, cluster *apiv1.Cluster) (bool, error) {
-	var secret corev1.Secret
-	err := r.GetClient().Get(
-		ctx,
-		client.ObjectKey{Namespace: r.instance.GetNamespaceName(), Name: cluster.Status.Certificates.ClientCASecret},
-		&secret)
-	if err != nil {
-		return false, err
-	}
-
-	return r.refreshCAFromSecret(ctx, &secret, postgresSpec.ClientCACertificateLocation)
-}
-
-// refreshServerCA gets the latest server CA certificates from the secrets.
-// It returns true if configuration has been changed
-func (r *InstanceReconciler) refreshServerCA(ctx context.Context, cluster *apiv1.Cluster) (bool, error) {
-	var secret corev1.Secret
-	err := r.GetClient().Get(
-		ctx,
-		client.ObjectKey{Namespace: r.instance.GetNamespaceName(), Name: cluster.Status.Certificates.ServerCASecret},
-		&secret)
-	if err != nil {
-		return false, err
-	}
-
-	return r.refreshCAFromSecret(ctx, &secret, postgresSpec.ServerCACertificateLocation)
-}
-
-// refreshBarmanEndpointCA gets the latest barman endpoint CA certificates from the secrets.
-// It returns true if configuration has been changed
-func (r *InstanceReconciler) refreshBarmanEndpointCA(ctx context.Context, cluster *apiv1.Cluster) (bool, error) {
-	endpointCAs := map[string]*apiv1.SecretKeySelector{}
-	if cluster.Spec.Backup.IsBarmanEndpointCASet() {
-		endpointCAs[postgresSpec.BarmanBackupEndpointCACertificateLocation] = cluster.Spec.Backup.BarmanObjectStore.EndpointCA
-	}
-	if replicaBarmanCA := cluster.GetBarmanEndpointCAForReplicaCluster(); replicaBarmanCA != nil {
-		endpointCAs[postgresSpec.BarmanRestoreEndpointCACertificateLocation] = replicaBarmanCA
-	}
-	if len(endpointCAs) == 0 {
-		return false, nil
-	}
-
-	var changed bool
-	for target, secretKeySelector := range endpointCAs {
-		var secret corev1.Secret
-		err := r.GetClient().Get(
-			ctx,
-			client.ObjectKey{Namespace: r.instance.GetNamespaceName(), Name: secretKeySelector.Name},
-			&secret)
-		if err != nil {
-			return false, err
-		}
-		c, err := r.refreshFileFromSecret(ctx, &secret, secretKeySelector.Key, target)
-		changed = changed || c
-		if err != nil {
-			return changed, err
-		}
-	}
-	return changed, nil
-}
 
 // verifyPgDataCoherenceForPrimary will abort the execution if the current server is a primary
 // one from the PGDATA viewpoint, but is not classified as the target nor the
@@ -271,47 +144,6 @@ func (r *InstanceReconciler) verifyPgDataCoherenceForPrimary(ctx context.Context
 		// Now I can demote myself
 		return r.instance.Demote(ctx, cluster)
 	}
-}
-
-// ReconcileWalStorage moves the files from PGDATA/pg_wal to the volume attached, if exists, and
-// creates a symlink for it
-func (r *InstanceReconciler) ReconcileWalStorage(ctx context.Context) error {
-	contextLogger := log.FromContext(ctx)
-
-	if pgWalExists, err := fileutils.FileExists(specs.PgWalVolumePath); err != nil {
-		return err
-	} else if !pgWalExists {
-		return nil
-	}
-
-	pgWalDirInfo, err := os.Lstat(specs.PgWalPath)
-	if err != nil {
-		return err
-	}
-	// The pgWalDir it's already a symlink meaning that there's nothing to do
-	mode := pgWalDirInfo.Mode() & fs.ModeSymlink
-	if !pgWalDirInfo.IsDir() && mode != 0 {
-		return nil
-	}
-
-	// We discarded every possibility that this has been done, let's move the current file to their
-	// new location
-	contextLogger.Info("Moving data", "from", specs.PgWalPath, "to", specs.PgWalVolumePgWalPath)
-	if err := fileutils.MoveDirectoryContent(specs.PgWalPath, specs.PgWalVolumePgWalPath); err != nil {
-		contextLogger.Error(err, "Moving data", "from", specs.PgWalPath, "to",
-			specs.PgWalVolumePgWalPath)
-		return err
-	}
-
-	contextLogger.Debug("Deleting old path", "path", specs.PgWalPath)
-	if err := fileutils.RemoveFile(specs.PgWalPath); err != nil {
-		contextLogger.Error(err, "Deleting old path", "path", specs.PgWalPath)
-		return err
-	}
-
-	// We moved all the files now we should create the proper symlink
-	contextLogger.Debug("Creating symlink", "from", specs.PgWalPath, "to", specs.PgWalVolumePgWalPath)
-	return os.Symlink(specs.PgWalVolumePgWalPath, specs.PgWalPath)
 }
 
 // ReconcileTablespaces ensures the mount points created for the tablespaces

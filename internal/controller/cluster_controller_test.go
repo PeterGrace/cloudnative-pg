@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -26,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
+	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/persistentvolumeclaim"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
@@ -269,4 +273,44 @@ var _ = Describe("Updating target primary", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
+})
+
+var _ = Describe("isNodeUnschedulableOrBeingDrained", func() {
+	node := &corev1.Node{}
+	nodeUnschedulable := &corev1.Node{
+		Spec: corev1.NodeSpec{
+			Unschedulable: true,
+		},
+	}
+	nodeTainted := &corev1.Node{
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{
+					Key:    "karpenter.sh/disrupted",
+					Effect: corev1.TaintEffectNoSchedule,
+				},
+			},
+		},
+	}
+	nodeWithUnknownTaint := &corev1.Node{
+		Spec: corev1.NodeSpec{
+			Taints: []corev1.Taint{
+				{
+					Key:    "unknown.io/taint",
+					Effect: corev1.TaintEffectPreferNoSchedule,
+				},
+			},
+		},
+	}
+
+	DescribeTable(
+		"it detects nodes that are unschedulable or being drained",
+		func(node *corev1.Node, expected bool) {
+			Expect(isNodeUnschedulableOrBeingDrained(node, configuration.DefaultDrainTaints)).To(Equal(expected))
+		},
+		Entry("plain node", node, false),
+		Entry("node is unschedulable", nodeUnschedulable, true),
+		Entry("node is tainted", nodeTainted, true),
+		Entry("node has an unknown taint", nodeWithUnknownTaint, false),
+	)
 })

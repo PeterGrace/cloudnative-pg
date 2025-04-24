@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package utils
@@ -54,6 +57,12 @@ const (
 	// PgControlDataDatabaseClusterStateKey is the status
 	// of the latest primary that run on this data directory.
 	PgControlDataDatabaseClusterStateKey pgControlDataKey = "Database cluster state"
+
+	// PgControlDataDataPageChecksumVersion reports whether the checksums are enabled in the cluster
+	PgControlDataDataPageChecksumVersion pgControlDataKey = "Data page checksum version"
+
+	// PgControlDataBytesPerWALSegment reports the size of the WAL segments
+	PgControlDataBytesPerWALSegment pgControlDataKey = "Bytes per WAL segment"
 )
 
 // PgDataState represents the "Database cluster state" field of pg_controldata
@@ -79,7 +88,7 @@ func (state PgDataState) IsShutdown(ctx context.Context) bool {
 }
 
 // ParsePgControldataOutput parses a pg_controldata output into a map of key-value pairs
-func ParsePgControldataOutput(data string) map[string]string {
+func ParsePgControldataOutput(data string) map[pgControlDataKey]string {
 	pairs := make(map[string]string)
 	lines := strings.Split(data, "\n")
 	for _, line := range lines {

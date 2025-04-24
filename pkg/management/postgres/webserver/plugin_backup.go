@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package webserver
@@ -33,7 +36,6 @@ import (
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	pluginClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
 	"github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/repository"
-	"github.com/cloudnative-pg/cloudnative-pg/internal/configuration"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/management/postgres"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/resources/status"
@@ -77,36 +79,27 @@ func (b *PluginBackupCommand) invokeStart(ctx context.Context) {
 		"backupNamespace", b.Backup.Name)
 
 	plugins := repository.New()
-	availablePlugins, err := plugins.RegisterUnixSocketPluginsInPath(configuration.Current.PluginSocketDir)
-	if err != nil {
-		contextLogger.Error(err, "Error while discovering plugins")
-	}
 	defer plugins.Close()
 
-	availablePluginNamesSet := stringset.From(availablePlugins)
-
-	enabledPluginNamesSet := stringset.From(
-		apiv1.GetPluginConfigurationEnabledPluginNames(b.Cluster.Spec.Plugins))
-	availableAndEnabled := stringset.From(availablePluginNamesSet.Intersect(enabledPluginNamesSet).ToList())
-
-	if !availableAndEnabled.Has(b.Backup.Spec.PluginConfiguration.Name) {
-		b.markBackupAsFailed(
-			ctx,
-			fmt.Errorf("requested plugin is not available: %s", b.Backup.Spec.PluginConfiguration.Name),
-		)
-		return
-	}
-
-	cli, err := pluginClient.WithPlugins(
+	enabledPluginNamesSet := stringset.New()
+	enabledPluginNamesSet.Put(b.Backup.Spec.PluginConfiguration.Name)
+	cli, err := pluginClient.NewClient(
 		ctx,
-		plugins,
-		availableAndEnabled.ToList()...,
+		enabledPluginNamesSet,
 	)
 	if err != nil {
 		b.markBackupAsFailed(ctx, err)
 		return
 	}
 	defer cli.Close(ctx)
+
+	if !cli.HasPlugin(b.Backup.Spec.PluginConfiguration.Name) {
+		b.markBackupAsFailed(
+			ctx,
+			fmt.Errorf("requested plugin is not available: %s", b.Backup.Spec.PluginConfiguration.Name),
+		)
+		return
+	}
 
 	// record the backup beginning
 	contextLogger.Info("Plugin backup started")

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -27,7 +30,6 @@ import (
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	cnpgiClient "github.com/cloudnative-pg/cloudnative-pg/internal/cnpi/plugin/client"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 )
 
 // preReconcilePluginHooks ensures we call the pre-reconcile plugin hooks
@@ -36,7 +38,7 @@ func preReconcilePluginHooks(
 	cluster *apiv1.Cluster,
 	object client.Object,
 ) cnpgiClient.ReconcilerHookResult {
-	pluginClient := getPluginClientFromContext(ctx)
+	pluginClient := cnpgiClient.GetPluginClientFromContext(ctx)
 	return pluginClient.PreReconcile(ctx, cluster, object)
 }
 
@@ -46,7 +48,7 @@ func postReconcilePluginHooks(
 	cluster *apiv1.Cluster,
 	object client.Object,
 ) cnpgiClient.ReconcilerHookResult {
-	pluginClient := getPluginClientFromContext(ctx)
+	pluginClient := cnpgiClient.GetPluginClientFromContext(ctx)
 	return pluginClient.PostReconcile(ctx, cluster, object)
 }
 
@@ -81,15 +83,8 @@ func setStatusPluginHook(
 		"after", cluster.Status.PluginStatus,
 	)
 
-	return ctrl.Result{RequeueAfter: 5 * time.Second}, cli.Status().Patch(ctx, cluster, client.MergeFrom(origCluster))
-}
-
-// setPluginClientInContext records the plugin client in the given context
-func setPluginClientInContext(ctx context.Context, client cnpgiClient.Client) context.Context {
-	return context.WithValue(ctx, utils.PluginClientKey, client)
-}
-
-// getPluginClientFromContext gets the current plugin client from the context
-func getPluginClientFromContext(ctx context.Context) cnpgiClient.Client {
-	return ctx.Value(utils.PluginClientKey).(cnpgiClient.Client)
+	if err := cli.Status().Patch(ctx, cluster, client.MergeFrom(origCluster)); err != nil {
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
 }

@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package controller
@@ -29,7 +32,7 @@ import (
 
 	apiv1 "github.com/cloudnative-pg/cloudnative-pg/api/v1"
 	"github.com/cloudnative-pg/cloudnative-pg/pkg/reconciler/persistentvolumeclaim"
-	"github.com/cloudnative-pg/cloudnative-pg/pkg/specs"
+	"github.com/cloudnative-pg/cloudnative-pg/pkg/utils"
 )
 
 // scaleDownCluster handles the scaling down operations of a PostgreSQL cluster.
@@ -98,13 +101,25 @@ func (r *ClusterReconciler) ensureInstanceJobAreDeleted(
 ) error {
 	contextLogger := log.FromContext(ctx)
 
-	for _, jobName := range specs.GetPossibleJobNames(instanceName) {
-		job := &batchv1.Job{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      jobName,
-				Namespace: cluster.Namespace,
-			},
-		}
+	var jobList batchv1.JobList
+	if err := r.List(
+		ctx,
+		&jobList,
+		client.InNamespace(cluster.Namespace),
+		client.MatchingFields{jobOwnerKey: cluster.Name},
+		client.MatchingLabels{
+			utils.InstanceNameLabelName: instanceName,
+			utils.ClusterLabelName:      cluster.Name,
+		},
+		client.HasLabels{
+			utils.JobRoleLabelName,
+		},
+	); err != nil {
+		return fmt.Errorf("while looking for stale jobs of instance %s: %w", instanceName, err)
+	}
+
+	for i := range jobList.Items {
+		job := &jobList.Items[i]
 
 		// This job was working against the PVC of this Pod,
 		// let's remove it

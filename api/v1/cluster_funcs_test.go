@@ -1,5 +1,6 @@
 /*
-Copyright The CloudNativePG Contributors
+Copyright © contributors to CloudNativePG, established as
+CloudNativePG a Series of LF Projects, LLC.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,6 +13,8 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+SPDX-License-Identifier: Apache-2.0
 */
 
 package v1
@@ -461,12 +464,12 @@ var _ = Describe("look up for secrets", Ordered, func() {
 	}
 
 	// assertServiceNamesPresent returns the first missing service name encountered
-	assertServiceNamesPresent := func(data *stringset.Data, serviceName string) string {
+	assertServiceNamesPresent := func(data *stringset.Data, serviceName string, clusterDomain string) string {
 		assertions := []string{
 			serviceName,
 			fmt.Sprintf("%v.%v", serviceName, cluster.Namespace),
 			fmt.Sprintf("%v.%v.svc", serviceName, cluster.Namespace),
-			fmt.Sprintf("%v.%v.svc.cluster.local", serviceName, cluster.Namespace),
+			fmt.Sprintf("%v.%v.svc.%s", serviceName, cluster.Namespace, clusterDomain),
 		}
 		for _, assertion := range assertions {
 			if !data.Has(assertion) {
@@ -498,11 +501,11 @@ var _ = Describe("look up for secrets", Ordered, func() {
 		Expect(names).To(HaveLen(12))
 		namesSet := stringset.From(names)
 		Expect(namesSet.Len()).To(Equal(12))
-		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadWriteName())).To(BeEmpty(),
+		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadWriteName(), "cluster.local")).To(BeEmpty(),
 			"missing service name")
-		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadName())).To(BeEmpty(),
+		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadName(), "cluster.local")).To(BeEmpty(),
 			"missing service name")
-		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadOnlyName())).To(BeEmpty(),
+		Expect(assertServiceNamesPresent(namesSet, cluster.GetServiceReadOnlyName(), "cluster.local")).To(BeEmpty(),
 			"missing service name")
 	})
 
@@ -521,9 +524,9 @@ var _ = Describe("look up for secrets", Ordered, func() {
 		It("should generate correctly the managed services names", func() {
 			namesSet := stringset.From(cluster.GetClusterAltDNSNames())
 			Expect(namesSet.Len()).To(Equal(20))
-			Expect(assertServiceNamesPresent(namesSet, "one")).To(BeEmpty(),
+			Expect(assertServiceNamesPresent(namesSet, "one", "cluster.local")).To(BeEmpty(),
 				"missing service name")
-			Expect(assertServiceNamesPresent(namesSet, "two")).To(BeEmpty(),
+			Expect(assertServiceNamesPresent(namesSet, "two", "cluster.local")).To(BeEmpty(),
 				"missing service name")
 		})
 
@@ -536,9 +539,9 @@ var _ = Describe("look up for secrets", Ordered, func() {
 			Expect(namesSet.Len()).To(Equal(12))
 			Expect(namesSet.Has(cluster.GetServiceReadName())).To(BeFalse())
 			Expect(namesSet.Has(cluster.GetServiceReadOnlyName())).To(BeFalse())
-			Expect(assertServiceNamesPresent(namesSet, "one")).To(BeEmpty(),
+			Expect(assertServiceNamesPresent(namesSet, "one", "cluster.local")).To(BeEmpty(),
 				"missing service name")
-			Expect(assertServiceNamesPresent(namesSet, "two")).To(BeEmpty(),
+			Expect(assertServiceNamesPresent(namesSet, "two", "cluster.local")).To(BeEmpty(),
 				"missing service name")
 		})
 	})
@@ -805,6 +808,35 @@ var _ = Describe("PostgreSQL version detection", func() {
 			Major: 16,
 		}
 		Expect(cluster.GetPostgresqlVersion()).To(Equal(version.New(16, 0)))
+	})
+
+	It("correctly prioritizes ImageCatalogRef over Status.Image and Spec.ImageName", func() {
+		cluster := Cluster{
+			Spec: ClusterSpec{
+				ImageName: "ghcr.io/cloudnative-pg/postgresql:14.1",
+				ImageCatalogRef: &ImageCatalogRef{
+					TypedLocalObjectReference: corev1.TypedLocalObjectReference{
+						Name: "test-catalog",
+						Kind: "ImageCatalog",
+					},
+					Major: 16,
+				},
+			},
+			Status: ClusterStatus{
+				Image: "ghcr.io/cloudnative-pg/postgresql:15.2",
+			},
+		}
+
+		// ImageCatalogRef should take precedence
+		Expect(cluster.GetPostgresqlVersion()).To(Equal(version.New(16, 0)))
+
+		// Remove ImageCatalogRef, Status.Image should take precedence
+		cluster.Spec.ImageCatalogRef = nil
+		Expect(cluster.GetPostgresqlVersion()).To(Equal(version.New(15, 2)))
+
+		// Remove Status.Image, Spec.ImageName should be used
+		cluster.Status.Image = ""
+		Expect(cluster.GetPostgresqlVersion()).To(Equal(version.New(14, 1)))
 	})
 })
 
