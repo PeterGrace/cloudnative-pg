@@ -33,7 +33,7 @@ spec:
     - major: 15
       image: ghcr.io/cloudnative-pg/postgresql:15.6
     - major: 16
-      image: ghcr.io/cloudnative-pg/postgresql:17.4
+      image: ghcr.io/cloudnative-pg/postgresql:17.5
 ```
 
 **Example of a Cluster-Wide Catalog using `ClusterImageCatalog` Resource:**
@@ -48,7 +48,7 @@ spec:
     - major: 15
       image: ghcr.io/cloudnative-pg/postgresql:15.6
     - major: 16
-      image: ghcr.io/cloudnative-pg/postgresql:17.4
+      image: ghcr.io/cloudnative-pg/postgresql:17.5
 ```
 
 A `Cluster` resource has the flexibility to reference either an `ImageCatalog`
