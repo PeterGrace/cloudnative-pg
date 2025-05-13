@@ -940,10 +940,9 @@ type ClusterStatus struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
-	// MajorVersionUpgradeFromImage contains the image that was
-	// running before the major version upgrade started.
+	// PGDataImageInfo contains the details of the latest image that has run on the current data directory.
 	// +optional
-	MajorVersionUpgradeFromImage *string `json:"majorVersionUpgradeFromImage,omitempty"`
+	PGDataImageInfo *ImageInfo `json:"pgDataImageInfo,omitempty"`
 
 	// PluginStatus is the status of the loaded plugins
 	// +optional
@@ -961,6 +960,14 @@ type ClusterStatus struct {
 	DemotionToken string `json:"demotionToken,omitempty"`
 }
 
+// ImageInfo contains the information about a PostgreSQL image
+type ImageInfo struct {
+	// Image is the image name
+	Image string `json:"image"`
+	// MajorVersion is the major version of the image
+	MajorVersion int `json:"majorVersion"`
+}
+
 // SwitchReplicaClusterStatus contains all the statuses regarding the switch of a cluster to a replica cluster
 type SwitchReplicaClusterStatus struct {
 	// InProgress indicates if there is an ongoing procedure of switching a cluster to a replica cluster.
@@ -975,6 +982,8 @@ type InstanceReportedState struct {
 	// indicates on which TimelineId the instance is
 	// +optional
 	TimeLineID int `json:"timeLineID,omitempty"`
+	// IP address of the instance
+	IP string `json:"ip,omitempty"`
 }
 
 // ClusterConditionType defines types of cluster conditions

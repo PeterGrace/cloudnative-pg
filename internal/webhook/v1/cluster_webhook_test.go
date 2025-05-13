@@ -1224,8 +1224,17 @@ var _ = Describe("validate image name change", func() {
 
 	Context("using image name", func() {
 		It("doesn't complain with no changes", func() {
+			defaultVersion, err := pgversion.FromTag(reference.New(versions.DefaultImageName).Tag)
+			Expect(err).ToNot(HaveOccurred())
 			clusterOld := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{},
+				Status: apiv1.ClusterStatus{
+					Image: versions.DefaultImageName,
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        versions.DefaultImageName,
+						MajorVersion: int(defaultVersion.Major()),
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{},
@@ -1237,6 +1246,13 @@ var _ = Describe("validate image name change", func() {
 			clusterOld := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
 					ImageName: "postgres:17.0",
+				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "postgres:17.0",
+						MajorVersion: 17,
+					},
 				},
 			}
 			clusterNew := &apiv1.Cluster{
@@ -1251,6 +1267,13 @@ var _ = Describe("validate image name change", func() {
 			clusterOld := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
 					ImageName: "postgres:17.1",
+				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "postgres:17.1",
+						MajorVersion: 17,
+					},
 				},
 			}
 			clusterNew := &apiv1.Cluster{
@@ -1271,6 +1294,13 @@ var _ = Describe("validate image name change", func() {
 							Kind: "ImageCatalog",
 						},
 						Major: 16,
+					},
+				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "test",
+						MajorVersion: 16,
 					},
 				},
 			}
@@ -1294,6 +1324,13 @@ var _ = Describe("validate image name change", func() {
 				Spec: apiv1.ClusterSpec{
 					ImageName: "postgres:16.1",
 				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "postgres:16.1",
+						MajorVersion: 16,
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
@@ -1313,6 +1350,13 @@ var _ = Describe("validate image name change", func() {
 				Spec: apiv1.ClusterSpec{
 					ImageName: "postgres:17.1",
 				},
+				Status: apiv1.ClusterStatus{
+					Image: "postgres:17.1",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "postgres:17.1",
+						MajorVersion: 17,
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
@@ -1328,8 +1372,17 @@ var _ = Describe("validate image name change", func() {
 			Expect(v.validateImageChange(clusterNew, clusterOld)).To(HaveLen(1))
 		})
 		It("complains going from default imageName to different major imageCatalogRef", func() {
+			defaultVersion, err := pgversion.FromTag(reference.New(versions.DefaultImageName).Tag)
+			Expect(err).ToNot(HaveOccurred())
 			clusterOld := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{},
+				Status: apiv1.ClusterStatus{
+					Image: versions.DefaultImageName,
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        versions.DefaultImageName,
+						MajorVersion: int(defaultVersion.Major()),
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
@@ -1378,6 +1431,13 @@ var _ = Describe("validate image name change", func() {
 						Major: 17,
 					},
 				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "test",
+						MajorVersion: 17,
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{
@@ -1395,6 +1455,13 @@ var _ = Describe("validate image name change", func() {
 							Kind: "ImageCatalog",
 						},
 						Major: 17,
+					},
+				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "test",
+						MajorVersion: 17,
 					},
 				},
 			}
@@ -1416,6 +1483,13 @@ var _ = Describe("validate image name change", func() {
 						Major: 18,
 					},
 				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "test",
+						MajorVersion: 18,
+					},
+				},
 			}
 			clusterNew := &apiv1.Cluster{
 				Spec: apiv1.ClusterSpec{},
@@ -1435,6 +1509,13 @@ var _ = Describe("validate image name change", func() {
 							Kind: "ImageCatalog",
 						},
 						Major: int(version.Major()),
+					},
+				},
+				Status: apiv1.ClusterStatus{
+					Image: "test",
+					PGDataImageInfo: &apiv1.ImageInfo{
+						Image:        "test",
+						MajorVersion: int(version.Major()),
 					},
 				},
 			}
@@ -5006,5 +5087,131 @@ var _ = Describe("validatePluginConfiguration", func() {
 	It("returns no errors when WAL archiver is enabled", func() {
 		cluster.Spec.Plugins = append(cluster.Spec.Plugins, walPlugin1)
 		Expect(v.validatePluginConfiguration(cluster)).To(BeNil())
+	})
+})
+
+var _ = Describe("", func() {
+	var v *ClusterCustomValidator
+	BeforeEach(func() {
+		v = &ClusterCustomValidator{}
+	})
+
+	It("returns no errors if the liveness pinger annotation is not present", func() {
+		cluster := &apiv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{},
+			},
+		}
+		Expect(v.validateLivenessPingerProbe(cluster)).To(BeNil())
+	})
+
+	It("returns no errors if the liveness pinger annotation is valid", func() {
+		cluster := &apiv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					utils.LivenessPingerAnnotationName: `{"connectionTimeout": 1000, "requestTimeout": 5000, "enabled": true}`,
+				},
+			},
+		}
+		Expect(v.validateLivenessPingerProbe(cluster)).To(BeNil())
+	})
+
+	It("returns an error if the liveness pinger annotation is invalid", func() {
+		cluster := &apiv1.Cluster{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					utils.LivenessPingerAnnotationName: `{"requestTimeout": 5000}`,
+				},
+			},
+		}
+		errs := v.validateLivenessPingerProbe(cluster)
+		Expect(errs).To(HaveLen(1))
+		Expect(errs[0].Error()).To(ContainSubstring("error decoding liveness pinger config"))
+	})
+})
+
+var _ = Describe("getInTreeBarmanWarnings", func() {
+	It("returns no warnings when BarmanObjectStore is not configured", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				Backup:           nil,
+				ExternalClusters: nil,
+			},
+		}
+		Expect(getInTreeBarmanWarnings(cluster)).To(BeEmpty())
+	})
+
+	It("returns a warning when BarmanObjectStore is configured in backup", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				Backup: &apiv1.BackupConfiguration{
+					BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{},
+				},
+			},
+		}
+		warnings := getInTreeBarmanWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0]).To(ContainSubstring("spec.backup.barmanObjectStore"))
+	})
+
+	It("returns warnings for multiple external clusters with BarmanObjectStore", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				ExternalClusters: []apiv1.ExternalCluster{
+					{BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{}},
+					{BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{}},
+				},
+			},
+		}
+		warnings := getInTreeBarmanWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0]).To(ContainSubstring("spec.externalClusters.0.barmanObjectStore"))
+		Expect(warnings[0]).To(ContainSubstring("spec.externalClusters.1.barmanObjectStore"))
+	})
+
+	It("returns warnings for both backup and external clusters with BarmanObjectStore", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				Backup: &apiv1.BackupConfiguration{
+					BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{},
+				},
+				ExternalClusters: []apiv1.ExternalCluster{
+					{BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{}},
+				},
+			},
+		}
+		warnings := getInTreeBarmanWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
+		Expect(warnings[0]).To(ContainSubstring("spec.backup.barmanObjectStore"))
+		Expect(warnings[0]).To(ContainSubstring("spec.externalClusters.0.barmanObjectStore"))
+	})
+})
+
+var _ = Describe("getRetentionPolicyWarnings", func() {
+	It("returns no warnings if the retention policy is used with the in-tree backup support", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				Backup: &apiv1.BackupConfiguration{
+					RetentionPolicy:   "this retention policy",
+					BarmanObjectStore: &apiv1.BarmanObjectStoreConfiguration{},
+				},
+			},
+		}
+
+		warnings := getRetentionPolicyWarnings(cluster)
+		Expect(warnings).To(BeEmpty())
+	})
+
+	It("return a warning when retention policies are declared and not used", func() {
+		cluster := &apiv1.Cluster{
+			Spec: apiv1.ClusterSpec{
+				Backup: &apiv1.BackupConfiguration{
+					RetentionPolicy: "this retention policy",
+				},
+			},
+		}
+
+		warnings := getRetentionPolicyWarnings(cluster)
+		Expect(warnings).To(HaveLen(1))
 	})
 })

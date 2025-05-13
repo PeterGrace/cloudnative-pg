@@ -17,7 +17,7 @@ version 17.1:
 Minor releases are fully compatible with earlier and later minor releases of
 the same major version. They include bug fixes and security updates but do not
 introduce changes to the internal storage format.
-For example, PostgreSQL 17.1 is compatible with 17.0 and 17.4.
+For example, PostgreSQL 17.1 is compatible with 17.0 and 17.5.
 
 ### Upgrading a Minor Version in CloudNativePG
 
@@ -74,8 +74,8 @@ For details on supported image tags, see
 ### Upgrade Process
 
 1. Shuts down all cluster pods to ensure data consistency.
-2. Records the previous PostgreSQL version in the cluster’s status under
-   `.status.majorVersionUpgradeFromImage`.
+2. Records the previous PostgreSQL version and image in the cluster’s status under
+   `.status.pgDataImageInfo`.
 3. Initiates a new upgrade job, which:
    - Verifies that the binaries in the image and the data files align with a
      major upgrade request.

@@ -294,16 +294,9 @@ func (instance *Instance) CheckHasDiskSpaceForWAL(ctx context.Context) (bool, er
 	}
 
 	pgControlData := utils.ParsePgControldataOutput(pgControlDataString)
-	walSegmentSizeString, ok := pgControlData[utils.PgControlDataBytesPerWALSegment]
-	if !ok {
-		return false, fmt.Errorf("no 'Bytes per WAL segment' section into pg_controldata output")
-	}
-
-	walSegmentSize, err := strconv.Atoi(walSegmentSizeString)
+	walSegmentSize, err := pgControlData.GetBytesPerWALSegment()
 	if err != nil {
-		return false, fmt.Errorf(
-			"wrong 'Bytes per WAL segment' pg_controldata value (not an integer): '%s' %w",
-			walSegmentSizeString, err)
+		return false, err
 	}
 
 	walDirectory := path.Join(instance.PgData, pgWalDirectory)
@@ -848,7 +841,7 @@ func (instance *Instance) Demote(ctx context.Context, cluster *apiv1.Cluster) er
 
 // WaitForPrimaryAvailable waits until we can connect to the primary
 func (instance *Instance) WaitForPrimaryAvailable(ctx context.Context) error {
-	primaryConnInfo := instance.GetPrimaryConnInfo() + " dbname=postgres connect_timeout=5"
+	primaryConnInfo := instance.GetPrimaryConnInfo() + " connect_timeout=5"
 
 	log.Info("Waiting for the new primary to be available",
 		"primaryConnInfo", primaryConnInfo)
@@ -1034,7 +1027,7 @@ func (instance *Instance) removePgControlFileBackup() error {
 
 // Rewind uses pg_rewind to align this data directory with the contents of the primary node.
 // If postgres major version is >= 13, add "--restore-target-wal" option
-func (instance *Instance) Rewind(ctx context.Context, postgresVersion semver.Version) error {
+func (instance *Instance) Rewind(ctx context.Context) error {
 	contextLogger := log.FromContext(ctx)
 
 	// Signal the liveness probe that we are running pg_rewind before starting postgres
@@ -1048,20 +1041,16 @@ func (instance *Instance) Rewind(ctx context.Context, postgresVersion semver.Ver
 	primaryConnInfo := instance.GetPrimaryConnInfo()
 	options := []string{
 		"-P",
-		"--source-server", primaryConnInfo + " dbname=postgres",
+		"--source-server", primaryConnInfo,
 		"--target-pgdata", instance.PgData,
 	}
 
-	// As PostgreSQL 13 introduces support of restore from the WAL archive in pg_rewind,
-	// let’s automatically use it, if possible
-	if postgresVersion.Major >= 13 {
-		// make sure restore_command is set in override.conf
-		if _, err := configurePostgresOverrideConfFile(instance.PgData, primaryConnInfo, ""); err != nil {
-			return err
-		}
-
-		options = append(options, "--restore-target-wal")
+	// make sure restore_command is set in override.conf
+	if _, err := configurePostgresOverrideConfFile(instance.PgData, primaryConnInfo, ""); err != nil {
+		return err
 	}
+
+	options = append(options, "--restore-target-wal")
 
 	// Make sure PostgreSQL control file is not empty
 	err := instance.managePgControlFileBackup()
@@ -1311,7 +1300,7 @@ func (instance *Instance) DropConnections() error {
 
 // GetPrimaryConnInfo returns the DSN to reach the primary
 func (instance *Instance) GetPrimaryConnInfo() string {
-	result := buildPrimaryConnInfo(instance.GetClusterName()+"-rw", instance.GetPodName())
+	result := buildPrimaryConnInfo(instance.GetClusterName()+"-rw", instance.GetPodName()) + " dbname=postgres"
 
 	standbyTCPUserTimeout := os.Getenv("CNPG_STANDBY_TCP_USER_TIMEOUT")
 	if len(standbyTCPUserTimeout) > 0 {
